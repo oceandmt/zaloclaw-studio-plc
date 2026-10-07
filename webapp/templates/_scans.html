@@ -1,0 +1,31 @@
+<table>
+  <tr><th>Nhóm</th><th>Trạng thái</th><th>Đã lấy</th><th>Cập nhật</th></tr>
+  {% for p in scans %}
+  <tr>
+    <td><b>{{ p.group_name or '(không tên)' }}</b><br><span class="mut" style="font-size:11px"><code>{{ p.group_id }}</code></span></td>
+    <td>
+      {% if p.status == 'running' %}
+        {% set pct = ((p.fetched / p.total * 100) if p.total else 10) | round(0) | int %}
+        <div style="min-width:150px">
+          <div class="mut" style="font-size:11px">⏳ đang quét… {{ p.fetched }}{% if p.total %}/{{ p.total }}{% endif %}</div>
+          <div style="background:var(--panel2);border-radius:6px;height:6px;margin-top:3px;overflow:hidden">
+            <div style="height:6px;background:var(--acc);width:{{ pct }}%"></div>
+          </div>
+        </div>
+      {% elif p.status == 'done' %}
+        <span class="pill {{ 'sent' if not p.partial else 'pending' }}">{{ '✓ đủ' if not p.partial else '◐ một phần' }}</span>
+      {% elif p.status == 'blocked' %}
+        <span class="pill failed">⛔ bị chặn</span>
+      {% elif p.status == 'error' %}
+        <span class="pill failed">✖ lỗi</span>
+      {% else %}
+        <span class="pill">{{ p.status }}</span>
+      {% endif %}
+    </td>
+    <td>{% if p.fetched %}<span class="pill {{ 'sent' if not p.partial else 'pending' }}">{{ p.fetched }}{% if p.total %}/{{ p.total }}{% endif %}</span>{% else %}<span class="mut">—</span>{% endif %}</td>
+    <td class="mut" style="font-size:11px">{{ p.updated_at | datetime_hm }}</td>
+  </tr>
+  {% endfor %}
+  {% if not scans %}<tr><td colspan="4" class="mut">Chưa có lượt quét nào. Vào tab Nhóm → bấm "Quét thành viên".</td></tr>{% endif %}
+</table>
+{% if scans and scans[0].error %}<p class="mut" style="font-size:11px;margin:6px 0 0">Ghi chú: {{ scans[0].error }}</p>{% endif %}

@@ -1,0 +1,45 @@
+<section id="contacts">
+  <h2>Tệp khách hàng</h2>
+
+  <form id="new-file-form" hx-post="/files/new" hx-swap="none"
+        hx-on::after-request="this.reset(); htmx.trigger('#contact-files','refresh')">
+    <div class="row" style="align-items:flex-end">
+      <div style="flex:2"><label>Tên tệp khách hàng</label>
+        <input name="name" placeholder="VD: KH nhóm Apollo 01/10" required></div>
+      <button type="submit">➕ Tạo tệp mới</button>
+    </div>
+    <label>Dán SĐT vào tệp (tuỳ chọn) — mỗi dòng: <code>SĐT, Tên, Giới tính</code></label>
+    <textarea name="text" placeholder="0367847099, Anh A, nam&#10;0901234567, Chị B, nữ&#10;0912345678"></textarea>
+  </form>
+
+  <div class="row" style="margin-top:8px;align-items:flex-end;gap:8px">
+    <div style="flex:1"><label>Hoặc tạo tệp từ file CSV</label>
+      <input type="file" id="new-csv" name="file" accept=".csv,text/csv,text/plain" style="padding:6px"></div>
+    <input id="new-csv-name" name="name" placeholder="Tên tệp (để trống = tên file)" style="flex:1">
+    <button type="button" class="sec"
+            hx-post="/files/new-csv" hx-encoding="multipart/form-data"
+            hx-include="#new-csv,#new-csv-name" hx-swap="none" hx-indicator="#new-csv-ind"
+            hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('Đã tạo tệp với '+r.added+'/'+r.parsed+' dòng'):('Lỗi: '+(r.error||JSON.stringify(r))));document.getElementById('new-csv').value='';htmx.trigger('#contact-files','refresh')">📤 Tạo từ CSV</button>
+    <span id="new-csv-ind" class="htmx-indicator mut">⏳…</span>
+  </div>
+
+  <div class="row" style="justify-content:space-between;margin:8px 0">
+    <span class="mut" style="font-size:12px"><b>📁 Danh sách tệp</b></span>
+    <span class="row" style="gap:8px;align-items:center">
+      <select id="alias-acct" style="width:auto">
+        {% for a in accounts %}<option value="{{ a.id }}">{{ a.id }}</option>{% endfor %}
+        {% if not accounts %}<option value="default">default</option>{% endif %}
+      </select>
+      <button type="button" class="sec" hx-post="/contacts/set-alias-bulk" hx-include="#alias-acct"
+              hx-swap="none" hx-disabled-elt="this"
+              hx-confirm="Đặt biệt danh Zalo = Tên - SĐT cho TẤT CẢ liên hệ có tên + SĐT? (không có SĐT sẽ giữ nguyên)"
+              hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('Đã đặt biệt danh: '+r.set+', bỏ qua: '+r.skipped):'Lỗi','ok')">🏷 Đặt biệt danh Zalo (Tên - SĐT)</button>
+      <a class="sec" href="/contacts/export.csv"
+       style="text-decoration:none;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px">📥 Xuất toàn bộ liên hệ ra CSV</a>
+    </span>
+  </div>
+  <div id="contact-files" hx-get="/ui/contact-files" hx-trigger="load, refresh from:body"
+       hx-swap="innerHTML" style="margin-top:4px"></div>
+
+  <div id="file-view" style="margin-top:14px"></div>
+</section>

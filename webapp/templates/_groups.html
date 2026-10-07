@@ -1,0 +1,45 @@
+<div class="row" style="margin-bottom:10px;align-items:flex-end">
+  <div style="flex:1"><label>Tài khoản</label><select id="grp-account" name="account_id">
+    {% for a in accounts %}<option value="{{ a.id }}">{{ a.id }} — {{ a.display_name or a.name }}</option>{% endfor %}
+    {% if not accounts %}<option value="default">default</option>{% endif %}
+  </select></div>
+  <button hx-post="/groups/sync" hx-include="#grp-account" hx-swap="none"
+          hx-indicator="#grp-sync" hx-disabled-elt="this"
+          hx-on::after-request="var r=jparse(event.detail.xhr);if(r.ok){toast('Đã đồng bộ '+r.count+' nhóm','ok')}else{toast(r.error,'err')}htmx.trigger('#groups-body','refresh')">🔄 Quét danh sách nhóm</button>
+  <span id="grp-sync" class="htmx-indicator mut">⏳ Đang quét…</span>
+</div>
+
+{% for aid, st in scan_status.items() %}
+<div class="row" style="gap:10px;font-size:12px;margin-bottom:8px">
+  <span class="mut">Tần suất quét <b>{{ aid }}</b>:</span>
+  <span class="pill {{ 'failed' if st.hour >= st.hour_cap else ('pending' if st.hour >= st.hour_cap*0.7 else 'sent') }}">{{ st.hour }}/{{ st.hour_cap }} giờ</span>
+  <span class="pill {{ 'failed' if st.day >= st.day_cap else 'sent' }}">{{ st.day }}/{{ st.day_cap }} ngày</span>
+  {% if st.wait > 0 %}<span class="pill pending">chờ {{ st.wait }}s</span>
+  {% elif st.can_scan %}<span class="pill sent">✓ có thể quét</span>
+  {% else %}<span class="pill failed">đã chặn</span>{% endif %}
+  <span class="mut">(gap ~{{ st.gap }}s/lượt — chống khóa nick)</span>
+</div>
+{% endfor %}
+
+<table style="margin-top:6px">
+  <tr><th>Nhóm</th><th>Thành viên</th><th>Tiến độ quét</th><th>Admin</th><th>TK</th><th></th></tr>
+  {% for g in groups %}
+  <tr id="grprow-{{ g.group_id }}">
+    <td><b>{{ g.name or '(không tên)' }}</b><br><span class="mut" style="font-size:11px"><code>{{ g.group_id }}</code></span></td>
+    <td><span class="pill">{{ g.total_member or g.member_count }}</span></td>
+    {% with gid = g.group_id, p = scan_map.get(g.group_id) %}{% include "_group_progress.html" %}{% endwith %}
+    <td class="mut">{{ g.admin_count }}</td>
+    <td class="mut">{{ g.account_id }}</td>
+    <td class="row" style="justify-content:flex-end">
+      <button class="sec" hx-post="/groups/{{ g.group_id }}/scan" hx-vals='{"account_id":"{{ g.account_id }}"}'
+              hx-swap="none" hx-disabled-elt="this" hx-indicator="#scan-{{ g.group_id }}"
+              hx-on::before-request="htmx.ajax('GET','/ui/group/{{ g.group_id }}/progress','#prog-{{ g.group_id }}')"
+              hx-on::after-request="var r=jparse(event.detail.xhr);if(!r.ok){toast(r.error,'err')}else{htmx.ajax('GET','/ui/group/{{ g.group_id }}/progress','#prog-{{ g.group_id }}')}">Quét thành viên</button>
+      <span id="scan-{{ g.group_id }}" class="htmx-indicator mut">⏳ quét…</span>
+      <button class="sec" hx-get="/ui/group/{{ g.group_id }}?account_id={{ g.account_id }}" hx-target="#grp-body"
+              hx-on::after-request="openGrpModal()">Xem</button>
+    </td>
+  </tr>
+  {% endfor %}
+  {% if not groups %}<tr><td colspan="6" class="mut">Chưa có nhóm. Bấm "🔄 Quét danh sách nhóm" (cần đã đăng nhập QR).</td></tr>{% endif %}
+</table>

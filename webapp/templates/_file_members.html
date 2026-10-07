@@ -1,0 +1,18 @@
+<table style="margin-top:8px">
+  <tr><th>SĐT</th><th>Tên</th><th>Giới tính</th><th>Zalo ID</th><th></th></tr>
+  {% for c in members %}
+  <tr>
+    <td><code>{{ c.phone }}</code></td>
+    <td>{{ c.display_name or '—' }}</td>
+    <td>{% if c.gender %}{{ 'Nam' if c.gender in ['nam','male','m'] else ('Nữ' if c.gender in ['nữ','nu','female','f'] else c.gender) }}{% else %}<span class="mut">—</span>{% endif %}</td>
+    <td>{% if c.zalo_user_id %}<span class="pill sent">đã có</span>{% else %}<span class="pill pending">chưa</span>{% endif %}</td>
+    <td class="row" style="justify-content:flex-end">
+      <button class="sec" onclick='editContact({{ c.phone|tojson }}, {{ (c.display_name or "")|tojson }}, {{ (c.gender or "")|tojson }})'>✏️ Sửa</button>
+      <button class="sec" onclick='removeContact({{ fid|tojson }}, {{ c.phone|tojson }})'>➖ Gỡ khỏi tệp</button>
+      <button class="danger" onclick='deleteContact({{ c.phone|tojson }})'>🗑</button>
+    </td>
+  </tr>
+  {% endfor %}
+  {% if not members %}<tr><td colspan="5" class="mut">Tệp trống. Thêm SĐT hoặc quét từ nhóm bên trên.</td></tr>{% endif %}
+</table>
+<p class="mut" style="font-size:12px">{{ members|length }} SĐT trong tệp</p>

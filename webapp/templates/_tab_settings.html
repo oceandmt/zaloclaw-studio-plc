@@ -1,0 +1,60 @@
+<section id="settings">
+  <h2>Cài đặt tần suất gửi (chống khóa nick)</h2>
+  <form hx-post="/settings/save" hx-swap="none"
+        hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?'Đã lưu cài đặt ✓':'Lỗi lưu cài đặt','ok')">
+    <div class="grid">
+      <div><label>Tối đa tin / giờ (mỗi nick)</label>
+        <input name="max_per_hour" type="number" min="1" value="{{ defaults.max_per_hour or 30 }}"></div>
+      <div><label>Tối đa tin / ngày (mỗi nick)</label>
+        <input name="max_per_day" type="number" min="1" value="{{ defaults.max_per_day or 200 }}"></div>
+      <div><label>Nghỉ tối thiểu giữa 2 tin (giây)</label>
+        <input name="min_gap_seconds" type="number" min="1" value="{{ defaults.min_gap_seconds or 25 }}"></div>
+      <div><label>Jitter ngẫu nhiên thêm (giây)</label>
+        <input name="jitter_seconds" type="number" min="0" value="{{ defaults.jitter_seconds or 15 }}"></div>
+      <div><label>Kết bạn tối đa / ngày</label>
+        <input name="max_friend_per_day" type="number" min="1" value="{{ defaults.max_friend_per_day or 20 }}"></div>
+      <div><label>&nbsp;</label>
+        <label style="margin:0"><input type="hidden" name="auto_resolve_contacts" value="0"><input type="checkbox" name="auto_resolve_contacts" value="1" style="width:auto"
+          {{ 'checked' if defaults.auto_resolve_contacts != false else '' }}>
+          Tự tra <b>tên + giới tính</b> từ SĐT trước khi gửi</label></div>
+      <div><label>&nbsp;</label>
+        <label style="margin:0"><input type="hidden" name="set_alias_on_send" value="0"><input type="checkbox" name="set_alias_on_send" value="1" style="width:auto"
+          {{ 'checked' if defaults.set_alias_on_send else '' }}>
+          Đặt <b>biệt danh Zalo = Tên - SĐT</b> khi gửi (không có SĐT thì giữ nguyên)</label></div>
+    </div>
+
+    <h2 style="margin-top:18px">⏰ Giờ im lặng — không gửi tin / kết bạn</h2>
+    <p class="mut" style="font-size:12px;margin:0 0 8px">Trong khung giờ này, engine <b>không gửi tin nhắn và không gửi lời mời kết bạn</b> (job được giữ lại và tự chạy tiếp khi hết giờ). Hữu ích để tránh nhắn đêm / ngoài giờ làm việc → giảm rủi ro khóa nick. Khung giờ có thể <b>qua nửa đêm</b> (VD 22:00 → 06:00).</p>
+    <div class="grid">
+      <div><label>&nbsp;</label>
+        <label style="margin:0"><input type="hidden" name="quiet_hours_enabled" value="0"><input type="checkbox" name="quiet_hours_enabled" value="1" style="width:auto"
+          {{ 'checked' if defaults.quiet_hours_enabled else '' }}>
+          <b>Bật</b> giờ im lặng</label></div>
+      <div><label>Từ (giờ im lặng bắt đầu)</label>
+        <input name="quiet_from" type="time" value="{{ defaults.quiet_from or '22:00' }}"></div>
+      <div><label>Đến (giờ im lặng kết thúc)</label>
+        <input name="quiet_to" type="time" value="{{ defaults.quiet_to or '06:00' }}"></div>
+    </div>
+
+    <h2 style="margin-top:18px">Tần suất quét nhóm</h2>
+    <div class="grid">
+      <div><label>Quét tối đa / giờ</label>
+        <input name="group_scan_per_hour" type="number" min="1" value="{{ defaults.group_scan_per_hour or 20 }}"></div>
+      <div><label>Quét tối đa / ngày</label>
+        <input name="group_scan_per_day" type="number" min="1" value="{{ defaults.group_scan_per_day or 60 }}"></div>
+      <div><label>Nghỉ giữa 2 lượt quét (giây)</label>
+        <input name="group_scan_gap_seconds" type="number" min="1" value="{{ defaults.group_scan_gap_seconds or 45 }}"></div>
+      <div><label>Jitter quét (giây)</label>
+        <input name="group_scan_jitter_seconds" type="number" min="0" value="{{ defaults.group_scan_jitter_seconds or 20 }}"></div>
+      <div><label>Đồng bộ danh sách nhóm — nghỉ (giây)</label>
+        <input name="group_sync_gap_seconds" type="number" min="1" value="{{ defaults.group_sync_gap_seconds or 600 }}"></div>
+    </div>
+
+    <div style="margin-top:14px"><button type="submit">💾 Lưu cài đặt</button>
+      <span class="mut" style="font-size:12px;margin-left:8px">Áp dụng ngay cho các lần gửi/quét tiếp theo.</span></div>
+  </form>
+
+  <p class="mut" style="font-size:12px;margin-top:12px">
+    ⚠️ Gửi quá nhanh/khối lượng lớn → dễ bị Zalo khóa nick. Khuyến nghị giữ cấu hình mặc định khi mới warm-up nick.
+  </p>
+</section>

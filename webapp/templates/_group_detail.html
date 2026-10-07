@@ -1,0 +1,53 @@
+<div class="row" style="justify-content:space-between;margin-bottom:10px">
+  <div>
+    <b>👥 {{ gname }}</b>
+    <div class="mut" style="font-size:11px"><code>{{ gid }}</code></div>
+  </div>
+  <button class="sec" onclick="closeGrpModal()">Đóng</button>
+</div>
+
+<div class="row" style="margin-bottom:10px;align-items:center">
+  <span class="pill">{{ members|length }} thành viên đã lấy</span>
+  <button class="sec" hx-post="/groups/{{ gid }}/export" hx-vals='{"to_contacts":"1"}' hx-swap="none"
+          hx-on::after-request="var r=jparse(event.detail.xhr);if(r.ok){toast('Đã xuất '+r.exported+' thành viên vào Tệp KH','ok')}else{toast('Lỗi','err')}htmx.trigger('#contact-files','refresh')">📥 Xuất vào Tệp KH</button>
+  <button class="sec" onclick="document.getElementById('mk-camp').style.display='block'">🎯 Tạo chiến dịch từ nhóm</button>
+</div>
+
+<div class="row" style="margin-bottom:10px;align-items:flex-end;gap:8px">
+  <div style="flex:1"><label>Lưu thành tệp KH (tên = tên nhóm + ngày giờ)</label>
+    <input id="gf-name" name="name" value="{{ default_file_name }}"></div>
+  <button class="sec" hx-post="/groups/{{ gid }}/save-file" hx-include="#gf-name" hx-swap="none"
+          hx-indicator="#gf-ind" hx-disabled-elt="this"
+          hx-on::after-request="var r=jparse(event.detail.xhr);if(r.ok){toast('Đã lưu tệp \"'+r.name+'\" ('+r.added+' SĐT)','ok')}else{toast('Lỗi: '+(r.error||JSON.stringify(r)),'err')}htmx.trigger('#contact-files','refresh')">💾 Lưu thành tệp</button>
+  <span id="gf-ind" class="htmx-indicator mut">⏳…</span>
+</div>
+
+<div id="mk-camp" style="display:none;border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px">
+  <form hx-post="/campaigns/from-group" hx-swap="none"
+        hx-on::after-request="htmx.trigger('#campaigns-body','refresh');this.reset()">
+    <input type="hidden" name="gid" value="{{ gid }}">
+    <input type="hidden" name="account_id" value="{{ account_id or 'default' }}">
+    <div class="row">
+      <div style="flex:2"><label>Tên chiến dịch</label><input name="name" value="Nhóm {{ gname }}" required></div>
+      <div style="flex:1"><label>Loại</label><select name="kind">
+        <option value="message">Gửi tin</option><option value="friend">Kết bạn</option></select></div>
+    </div>
+    <label>Nội dung ({name} / {salutation})</label>
+    <textarea name="body_template" placeholder="Chào {salutation} {name}, ..."></textarea>
+    <label>Link (tuỳ chọn)</label><input name="url" placeholder="https://...">
+    <label style="margin-top:8px"><input type="hidden" name="dry_run" value="off"><input type="checkbox" name="dry_run" value="on" checked style="width:auto"> DRY-RUN (bỏ tick = gửi LIVE)</label>
+    <div style="margin-top:8px"><button type="submit">Tạo chiến dịch</button></div>
+  </form>
+</div>
+
+<table>
+  <tr><th>Tên</th><th>Zalo ID</th><th>Vai trò</th></tr>
+  {% for m in members %}
+  <tr>
+    <td>{{ m.display_name or '—' }}</td>
+    <td><code style="font-size:11px">{{ m.user_id }}</code></td>
+    <td>{% if m.is_admin %}<span class="pill sent">admin</span>{% else %}<span class="mut">thành viên</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  {% if not members %}<tr><td colspan="3" class="mut">Chưa quét được thành viên. Bấm "Quét thành viên" ở danh sách nhóm.</td></tr>{% endif %}
+</table>

@@ -1,0 +1,116 @@
+{# Partial: rendered on /ui/autobot and swapped into #rules-box on the tab. #}
+<div id="rules-box" class="panel" hx-get="/ui/autobot" hx-trigger="every 6s" hx-swap="outerHTML">
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <h3 style="margin:0">🔀 Pipeline G2G đang cấu hình <span class="mut">({{ rules|length }})</span></h3>
+    <span class="row" style="gap:6px;flex-wrap:wrap">
+      {% for bid, b in bots.items() %}
+        <span class="pill" style="font-size:11px;border:1px solid var(--line)">
+          🛰 {{ bid }}:
+          {% if b.ready %}<b style="color:var(--ok)">đang nghe</b>
+          {% elif b.running %}<b style="color:var(--warn)">chưa ready</b>
+          {% else %}<b style="color:var(--err)">tắt</b>{% endif %}
+          {% if b.watch and b.ready %}
+            <b style="color:var(--mut)">· {% if b.watch.mode == 'all' %}tất cả nhóm{% else %}{{ b.watch.count }} nhóm{% endif %}</b>
+          {% endif %}
+        </span>
+      {% endfor %}
+      {% for bid, b in bots.items() %}{% if b.running %}
+        <button class="ghost" style="font-size:11px" title="Đồng bộ lại danh sách nhóm đang nghe theo các pipeline đang bật"
+                hx-post="/autobot/bot/watch" hx-vals='{"account_id": "{{ bid }}"}'
+                hx-swap="none" onclick="setTimeout(abRefresh,400)">🔄 Đồng bộ nhóm nghe</button>
+      {% endif %}{% endfor %}
+    </span>
+  </div>
+
+  {% if not rules %}
+    <p class="mut">Chưa có pipeline nào. Tạo ở trên: chọn nhóm A để nghe và nhóm B để nhận.</p>
+  {% else %}
+  <div class="tablewrap">
+  <table>
+    <thead><tr>
+      <th>Pipeline</th><th>Nhóm A (nghe)</th><th></th><th>Nhóm B (đẩy tới)</th>
+      <th>Trạng thái</th><th>Đã đẩy</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for r in rules %}
+      <tr>
+        <td>
+          <b>{{ r.name }}</b><br>
+          <span class="mut" style="font-size:11px">🛰 {{ r.account_id }}
+          {% if r.dry_run %}· <span style="color:var(--warn)">DRY</span>{% else %}· <span style="color:var(--err)">LIVE</span>{% endif %}
+          {% if r.prefix %}· tiền tố “{{ r.prefix }}”{% endif %}</span>
+        </td>
+        <td style="max-width:240px">{{ r.src_group_name or r.src_group_id }}<br>
+          <span class="mut" style="font-size:11px">{{ r.src_group_id }}</span></td>
+        <td style="text-align:center">➜</td>
+        <td style="max-width:240px">{{ r.dst_group_name or r.dst_group_id }}<br>
+          <span class="mut" style="font-size:11px">{{ r.dst_group_id }}</span></td>
+        <td>
+          {% if r.enabled %}<span class="pill" style="color:var(--ok)">BẬT</span>
+          {% else %}<span class="pill" style="color:var(--mut)">TẮT</span>{% endif %}
+          {% if r.sent_last_hour is defined %}<br><span class="mut" style="font-size:11px">{{ r.sent_last_hour }}/h</span>{% endif %}
+        </td>
+        <td>{{ r.forwarded_count }} <span class="mut">· bỏ {{ r.skipped_count }}</span>
+          {% if r.error %}<br><span style="color:var(--err);font-size:11px">{{ r.error[:60] }}</span>{% endif %}</td>
+        <td class="row" style="gap:4px;flex-wrap:wrap">
+          <button class="sec" style="padding:2px 8px"
+            hx-post="/autobot/{{ r.id }}/toggle" hx-vals='{"enabled": "{{ 0 if r.enabled else 1 }}"}'
+            hx-swap="none" hx-on::after-request="abRefresh()">{{ 'Tắt' if r.enabled else 'Bật' }}</button>
+          <button class="sec" style="padding:2px 8px" onclick="abEdit('{{ r.id }}')">✏️ Sửa</button>
+          <button class="danger" style="padding:2px 8px" onclick="abDelete('{{ r.id }}','{{ r.name }}')">🗑</button>
+        </td>
+      </tr>
+      <tr id="ab-edit-{{ r.id }}" class="ab-edit-row" style="display:none;background:var(--panel2)">
+        <td colspan="7">
+          <form hx-post="/autobot/{{ r.id }}/update" hx-swap="none"
+                data-ab-edit="{{ r.id }}"
+                hx-on::after-request="abSaved(event, '{{ r.id }}')">
+            <div class="grid">
+              <div><label>Tên</label><input name="name" value="{{ r.name }}"></div>
+              <div><label>Nhóm A (nguồn)</label>
+                <input class="ab-search" data-ab-target="abe-{{ r.id }}-src" placeholder="🔍 tìm nhóm…">
+                <select name="src_group_id" data-ab-select="abe-{{ r.id }}-src">{% for g in groups %}<option value="{{ g.group_id }}" {{ 'selected' if g.group_id==r.src_group_id else '' }}>{{ g.name }} · {{ g.group_id }}</option>{% endfor %}</select></div>
+              <div><label>Nhóm B (đích)</label>
+                <input class="ab-search" data-ab-target="abe-{{ r.id }}-dst" placeholder="🔍 tìm nhóm…">
+                <select name="dst_group_id" data-ab-select="abe-{{ r.id }}-dst">{% for g in groups %}<option value="{{ g.group_id }}" {{ 'selected' if g.group_id==r.dst_group_id else '' }}>{{ g.name }} · {{ g.group_id }}</option>{% endfor %}</select></div>
+              <div><label>Tiền tố</label><input name="prefix" value="{{ r.prefix }}"></div>
+              <div><label>Hạn mức /giờ</label><input name="max_per_hour" type="number" value="{{ r.max_per_hour }}"></div>
+              <div><label>Giãn cách (giây)</label><input name="gap_seconds" type="number" value="{{ r.gap_seconds }}"></div>
+              <div><label title="Gộp ảnh + text gửi rời thành 1 tin">Gom cụm (ms)</label><input name="group_window_ms" type="number" value="{{ r.group_window_ms or 2000 }}"></div>
+              <div><label title="Cách xử lý khi tin nhắn là REPLY">Xử lý reply</label>
+                <select name="reply_mode">
+                  <option value="text" {{ 'selected' if (r.reply_mode or 'text')=='text' else '' }}>Trích dẫn</option>
+                  <option value="quote" {{ 'selected' if r.reply_mode=='quote' else '' }}>Quote thật</option>
+                  <option value="skip" {{ 'selected' if r.reply_mode=='skip' else '' }}>Bỏ qua</option>
+                </select></div>
+              <div><label>Tuỳ chọn</label>
+                <input type="hidden" name="reply_quote_ms" value="0">
+                <label style="display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" name="reply_quote_ms" value="1" {{ 'checked' if r.reply_quote_ms else '' }} style="width:auto"> Giờ tin gốc trong trích dẫn (tự thêm ngày nếu tin cũ)</label>
+                <input type="hidden" name="dry_run" value="off">
+                <label style="display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" name="dry_run" value="on" {{ 'checked' if r.dry_run else '' }} style="width:auto"> DRY-RUN</label>
+                <input type="hidden" name="include_self" value="0">
+                <label style="display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" name="include_self" value="1" {{ 'checked' if r.include_self else '' }} style="width:auto"> Đẩy cả tin bot</label>
+                <input type="hidden" name="enabled" value="0">
+                <label style="display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" name="enabled" value="1" {{ 'checked' if r.enabled else '' }} style="width:auto"> Bật luồng</label>
+              </div>
+            </div>
+            <div class="row" style="margin-top:8px"><button class="ok" type="submit">💾 Lưu</button></div>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <div style="margin-top:12px">
+    <div class="row" style="justify-content:space-between">
+      <h4 style="margin:0">Nhật ký đẩy tin G2G (20 gần nhất)</h4>
+      <button class="sec" style="padding:2px 8px" onclick="htmx.trigger('#ab-log','refresh')">↻</button>
+    </div>
+    <div id="ab-log" hx-get="/ui/autobot/log" hx-trigger="load, every 6s" hx-swap="innerHTML">
+      <p class="mut">Đang tải nhật ký…</p>
+    </div>
+  </div>
+  {% endif %}
+</div>

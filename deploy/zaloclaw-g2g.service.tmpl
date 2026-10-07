@@ -1,0 +1,23 @@
+[Unit]
+Description=zaloclaw G2G Pipeline (group->group forwarding · listeners · backfill)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__APP_DIR__/webapp
+Environment=PYTHONUNBUFFERED=1
+Environment=HOME=__HOME_DIR__
+Environment=ZS_ROLE=g2g
+ExecStart=__APP_DIR__/webapp/.venv/bin/python -m uvicorn app:app --host __HOST__ --port __G2G_PORT__ --log-level warning
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillMode=control-group
+LimitNOFILE=16384
+StandardOutput=append:__APP_DIR__/logs/g2g-systemd.log
+StandardError=append:__APP_DIR__/logs/g2g-systemd.err
+SyslogIdentifier=zaloclaw-g2g
+
+[Install]
+WantedBy=default.target

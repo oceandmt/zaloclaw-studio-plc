@@ -1,0 +1,64 @@
+<section id="campaigns">
+  <h2>Chiến dịch</h2>
+  <form id="campaign-form" hx-post="/campaigns/new" hx-swap="none" enctype="multipart/form-data"
+        hx-encoding="multipart/form-data"
+        hx-on::before-request="if(!blkValidate(this)){event.preventDefault();}else if(document.getElementById('camp-dry').checked===false && !confirm('Bạn đã TẮT DRY-RUN — tạo chiến dịch này sẽ GỬI TIN THẬT tới người nhận. Tiếp tục?')){event.preventDefault();}"
+        hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('Đã tạo chiến dịch · '+r.targets+' SĐT'+(r.images?(' · '+r.images+' ảnh'):'')+(r.warn?(' — '+r.warn):'')):('Lỗi: '+(r.error||'')), r.ok?'ok':'err');if(r.ok){this.reset();blkBuild('new-blocks',[]);}htmx.trigger('#campaigns-body','refresh')">
+    <div class="grid">
+      <div><label>Tên chiến dịch</label><input name="name" placeholder="Chăm sóc KH tháng 10" required></div>
+      <div><label>Loại</label><select name="kind">
+        <option value="message">Gửi tin nhắn</option>
+        <option value="friend">Kết bạn</option>
+      </select></div>
+      <div><label>Tài khoản gửi</label><select name="account_id">
+        {% for a in accounts %}<option value="{{ a.id }}">{{ a.id }} — {{ a.display_name or a.name }}</option>{% endfor %}
+        {% if not accounts %}<option value="default">default</option>{% endif %}
+      </select></div>
+      <div><label>Gửi vào nhóm (groupId — để trống = gửi từng KH)</label><input name="thread_id" placeholder="VD: 1234567890">
+        <p class="mut" style="font-size:11px;margin:3px 0 0">⚠ Điền groupId sẽ gửi <b>cùng 1 nội dung</b> vào nhóm đó (mỗi KH trong danh sách = 1 lần gửi). Thường chỉ cần <b>1 người nhận</b> khi dùng chế độ này.</p></div>
+      <div style="grid-column:1/-1">
+        <label>Nội dung gửi (nhiều khối — sắp xếp tuỳ ý; dùng <code>{name}</code> / <code>{salutation}</code>)</label>
+        <div class="blk-builder" id="new-blocks">
+          <textarea class="blk-init" style="display:none">[]</textarea>
+          <div class="blk-list"></div>
+          <div class="row" style="margin-top:6px">
+            <button type="button" class="sec" onclick="blkAdd('new-blocks','text')">＋ Chữ</button>
+            <button type="button" class="sec" onclick="blkAdd('new-blocks','image')">＋ Ảnh</button>
+            <button type="button" class="sec" onclick="blkAdd('new-blocks','link')">＋ Link</button>
+            <button type="button" class="sec" onclick="blkPreview('new-blocks')">👁 Xem thử</button>
+          </div>
+          <input type="hidden" name="blocks_json" class="blk-json" value="[]">
+        </div>
+        <p class="mut" style="font-size:12px;margin:4px 0 0">Gửi <b>tuần tự</b> từ trên xuống: khối Chữ = 1 tin nhắn, khối Ảnh liền nhau = 1 album (mỗi ảnh có chú thích riêng), khối Link = thẻ link. Ảnh tải lên ngay khi chọn.</p>
+      </div>
+    </div>
+    <p class="mut" style="font-size:12px;margin:6px 0 0">
+      Placeholder: <code>{name}</code> tên người nhận · <code>{salutation}</code> Anh/Chị theo giới tính ·
+      <code>{gioi_tinh}</code> nam/nữ.
+    </p>
+    <div class="row" style="margin-top:10px">
+      <label style="margin:0"><input type="hidden" name="dry_run" value="off"><input type="checkbox" id="camp-dry" name="dry_run" value="on" checked style="width:auto"> <b>DRY-RUN</b> (không gửi thật — bỏ tick để gửi LIVE)</label>
+      <div style="flex:1"><label>Nguồn SĐT</label><select name="file_id">
+        <option value="">— Không dùng tệp —</option>
+        {% for f in files %}<option value="{{ f.id }}">📄 {{ f.name }} ({{ f.n }})</option>{% endfor %}
+      </select></div>
+      <div style="flex:1"><label>Lọc theo tag (giữ Ctrl/Cmd để chọn nhiều — bỏ trống = tất cả)</label>
+        <select name="tags" multiple size="3" style="min-height:64px">
+          {% for t in all_tags %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select></div>
+      <div style="flex:1"><label>Hoặc dán thêm SĐT (cách nhau bởi dấu phẩy / khoảng trắng)</label><input name="paste_targets" placeholder="090..., 091... (nhiều SĐT OK)"></div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label style="margin:0"><input type="checkbox" name="use_contacts" value="on" style="width:auto">
+        Dùng <b>TOÀN BỘ danh bạ</b> khi không chọn tệp (mặc định TẮT — tránh gửi nhầm cho tất cả)</label>
+    </div>
+    <div style="margin-top:10px" class="row">
+      <button type="submit">＋ Tạo chiến dịch</button>
+      <button type="button" class="sec" hx-post="/campaigns/new" hx-swap="none" hx-include="#campaign-form"
+              hx-vals='{"save_draft":"1"}'
+              hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('💾 Đã lưu nháp · '+r.targets+' SĐT (chưa chạy)'):('Lỗi: '+(r.error||'')), r.ok?'ok':'err');this.closest('form').reset();htmx.trigger('#campaigns-body','refresh')">💾 Lưu nháp (chưa chạy)</button>
+    </div>
+  </form>
+  <div id="campaign-edit" style="margin-top:14px"></div>
+  <div id="campaigns-body" hx-get="/ui/campaigns" hx-trigger="load, every 5s, refresh from:body" hx-swap="innerHTML" style="margin-top:12px"></div>
+</section>

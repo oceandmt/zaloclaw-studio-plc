@@ -1,0 +1,11 @@
+{
+  "name": "zaloclaw-studio-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "zca-js bridge for zaloclaw-studio: QR login, session daemon, send/friend actions with dry-run",
+  "dependencies": {
+    "image-size": "^1.2.1",
+    "zca-js": "^2.2.0"
+  }
+}

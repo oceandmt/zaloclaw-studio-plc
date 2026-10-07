@@ -1,0 +1,23 @@
+<div id="qr-panel" {% if not done %}hx-get="/ui/accounts/{{ aid }}/qr" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <div class="row" style="justify-content:space-between">
+    <b>Đăng nhập QR — {{ aid }}</b>
+    <button class="sec" onclick="closeQrModal()">Đóng</button>
+  </div>
+  {% if st.logged_in %}
+    <p style="color:var(--ok)">✅ Đã đăng nhập! Credentials đã lưu.</p>
+    <button class="sec" onclick="closeQrModal();htmx.trigger('#accounts-body','refresh')">Xong</button>
+  {% elif last and last.event == 'qr' %}
+    <p class="mut">Mở Zalo → Trang cá nhân → biểu tượng QR → quét mã:</p>
+    <div style="text-align:center"><img class="qr" src="{{ last.image }}" alt="QR" style="max-width:260px"></div>
+    <p class="mut" style="font-size:12px">Đang chờ quét… (tự cập nhật)</p>
+  {% elif last and last.event == 'scanned' %}
+    <p style="color:var(--warn)">📱 Đã quét ({{ last.name }}) — xác nhận trên điện thoại…</p>
+  {% elif last and last.event == 'error' %}
+    <p style="color:var(--err)">❌ Lỗi: {{ last.message }}</p>
+    <button hx-post="/accounts/{{ aid }}/qr" hx-target="#qr-panel" hx-swap="outerHTML">Thử lại</button>
+  {% elif last and last.event == 'expired' %}
+    <p class="mut">⏳ Mã QR hết hạn — đang tạo mã mới…</p>
+  {% else %}
+    <p class="mut">Đang tạo mã QR…</p>
+  {% endif %}
+</div>

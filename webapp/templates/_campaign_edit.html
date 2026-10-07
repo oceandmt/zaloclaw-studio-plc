@@ -1,0 +1,73 @@
+<div id="campaign-edit" data-cid="{{ camp.id }}">
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <div><b>✏️ Sửa chiến dịch</b>
+      <span class="mut" style="font-size:11px">({{ camp.id }})</span></div>
+    <button class="sec" onclick="document.getElementById('campaign-edit').innerHTML=''">Đóng</button>
+  </div>
+  <p class="mut" style="font-size:12px;margin:6px 0">
+    Trạng thái: <b>{{ camp.status }}</b> · {{ 'DRY' if camp.dry_run else 'LIVE' }} ·
+    {{ tcount }} SĐT hiện có
+    {% if camp.status in ('running','paused') %}<span class="pill failed">đang chạy — nên Dừng trước khi sửa nguồn SĐT</span>{% endif %}
+  </p>
+
+  <form id="camp-edit-form" hx-post="/campaigns/{{ camp.id }}/update" hx-swap="none"
+        enctype="multipart/form-data" hx-encoding="multipart/form-data"
+        hx-on::before-request="if(!blkValidate(this)){event.preventDefault();}"
+        hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?'Đã lưu chiến dịch':('Lỗi: '+(r.error||JSON.stringify(r))), r.ok?'ok':'err');htmx.trigger('#campaigns-body','refresh');refreshCampaignEdit('{{ camp.id }}')">
+    <div class="grid">
+      <div><label>Tên chiến dịch</label>
+        <input name="name" value="{{ camp.name }}" required></div>
+      <div><label>Loại</label><select name="kind">
+        <option value="message" {{ 'selected' if camp.kind == 'message' else '' }}>Gửi tin nhắn</option>
+        <option value="friend" {{ 'selected' if camp.kind == 'friend' else '' }}>Kết bạn</option>
+      </select></div>
+      <div><label>Tài khoản gửi</label><select name="account_id">
+        {% for a in accounts %}<option value="{{ a.id }}" {{ 'selected' if a.id == camp.account_id else '' }}>{{ a.id }} — {{ a.display_name or a.name }}</option>{% endfor %}
+        {% if camp.account_id and camp.account_id not in accounts|map(attribute='id')|list %}
+          <option value="{{ camp.account_id }}" selected>{{ camp.account_id }}</option>{% endif %}
+      </select></div>
+      <div><label>Gửi vào nhóm (groupId — trống = gửi từng KH)</label>
+        <input name="thread_id" value="{{ camp.thread_id or '' }}" placeholder="VD: 1234567890"></div>
+      <div style="grid-column:1/-1">
+        <label>Nội dung gửi (nhiều khối — sắp xếp tuỳ ý; dùng <code>{name}</code> / <code>{salutation}</code>)</label>
+        <div class="blk-builder" id="edit-blocks">
+          <textarea class="blk-init" style="display:none">{{ blocks_json }}</textarea>
+          <div class="blk-list"></div>
+          <div class="row" style="margin-top:6px">
+            <button type="button" class="sec" onclick="blkAdd('edit-blocks','text')">＋ Chữ</button>
+            <button type="button" class="sec" onclick="blkAdd('edit-blocks','image')">＋ Ảnh</button>
+            <button type="button" class="sec" onclick="blkAdd('edit-blocks','link')">＋ Link</button>
+            <button type="button" class="sec" onclick="blkPreview('edit-blocks')">👁 Xem thử</button>
+          </div>
+          <input type="hidden" name="blocks_json" class="blk-json" value="">
+        </div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;align-items:flex-end">
+      <label style="margin:0"><input type="hidden" name="dry_run" value="off">
+        <input type="checkbox" name="dry_run" value="on" {{ 'checked' if camp.dry_run else '' }} style="width:auto"> <b>DRY-RUN</b></label>
+    </div>
+
+    <details style="margin-top:10px;border:1px solid var(--line);border-radius:8px;padding:8px">
+      <summary style="cursor:pointer">🎯 Đổi nguồn SĐT (thay toàn bộ danh sách hiện tại — {{ tcount }} SĐT)</summary>
+      <div class="row" style="margin-top:8px;align-items:flex-end">
+        <div style="flex:1"><label>Từ tệp KH</label><select name="file_id">
+          <option value="">— Không đổi —</option>
+          {% for f in files %}<option value="{{ f.id }}">📄 {{ f.name }} ({{ f.n }})</option>{% endfor %}
+        </select></div>
+        <div style="flex:1"><label>Lọc tag (Ctrl/Cmd nhiều)</label>
+          <select name="tags" multiple size="3" style="min-height:56px">
+            {% for t in all_tags %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+          </select></div>
+        <div style="flex:1"><label>Dán SĐT (cách nhau bởi dấu phẩy / khoảng trắng)</label><input name="paste_targets" placeholder="090..., 091... (nhiều SĐT OK)"></div>
+      </div>
+      <label style="margin:8px 0 0"><input type="checkbox" name="use_contacts" value="on" style="width:auto"> Dùng toàn bộ liên hệ (nếu không chọn tệp)</label>
+      <p class="mut" style="font-size:11px;margin:6px 0 0">Chỉ rebuild khi bạn chọn tệp / tag / dán SĐT / tick "toàn bộ liên hệ". Bỏ trống = giữ nguyên {{ tcount }} SĐT.</p>
+    </details>
+
+    <div class="row" style="margin-top:10px">
+      <button type="submit" class="ok">💾 Lưu chiến dịch</button>
+    </div>
+  </form>
+</div>

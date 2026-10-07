@@ -1,0 +1,23 @@
+{% if not log %}<p class="mut">(chưa có tin nào được đẩy)</p>{% else %}
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Giờ</th><th>Pipeline</th><th>Người gửi (A)</th><th>Nội dung</th><th>Kết quả</th></tr></thead>
+  <tbody>
+  {% for l in log %}
+    <tr>
+      <td class="mut" style="font-size:11px">{{ l.ts|ts_fmt }}</td>
+      <td class="mut" style="font-size:11px">{{ l.rule_id }}</td>
+      <td>{{ l.src_name or '—' }}</td>
+      <td style="max-width:520px">{{ l.text }}</td>
+      <td>
+        {% if l.status == 'sent' %}<span style="color:var(--ok)">đã gửi</span>
+        {% elif l.status == 'dry' %}<span style="color:var(--warn)">dry-run</span>
+        {% elif l.status.startswith('skip') %}<span class="mut">{{ l.status }}</span>
+        {% else %}<span style="color:var(--err)">{{ l.status }}</span>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}

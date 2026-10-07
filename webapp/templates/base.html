@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zaloclaw-studio</title>
+<script src="/static/htmx.min.js"></script>
+<style>
+:root{--bg:#0f1115;--panel:#171a21;--panel2:#1e2229;--line:#2a2f3a;--fg:#e6e8ee;--mut:#9aa4b2;
+--acc:#4f8cff;--ok:#39c07a;--warn:#e0a63a;--err:#e5484d;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:12px 18px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header h1{font-size:16px;margin:0;font-weight:600}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+nav .tab{background:transparent;border:1px solid transparent;color:var(--mut);padding:6px 12px;border-radius:8px;font:inherit;cursor:pointer}
+nav .tab:hover{background:var(--panel2);color:var(--fg)}
+nav .tab.active{background:var(--panel2);border-color:var(--line);color:var(--fg);font-weight:600}
+.spacer{flex:1}
+.badge{font-size:12px;padding:3px 8px;border-radius:99px;border:1px solid var(--line);background:var(--panel2);color:var(--mut)}
+.badge.ok{color:var(--ok);border-color:#1d4d33}
+.badge.err{color:var(--err);border-color:#5b2124}
+.badge.warn{color:var(--warn);border-color:#5a4413}
+main{max-width:min(1760px,95vw);margin:0 auto;padding:18px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:18px}
+section h2{margin:0 0 12px;font-size:14px;letter-spacing:.02em;text-transform:uppercase;color:var(--mut)}
+label{display:block;font-size:12px;color:var(--mut);margin:8px 0 4px}
+input,textarea,select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px 10px;font:inherit}
+textarea{min-height:90px;resize:vertical}
+button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer}
+button.sec{background:var(--panel2);border:1px solid var(--line);color:var(--fg)}
+button.danger{background:var(--panel2);border:1px solid #5a2530;color:#ff8a9b}
+button.danger:hover{background:#2a1620}
+button.ok{background:var(--ok)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+/* Wide desktop: let dense forms use 3 columns so fields don't stretch awkwardly */
+@media (min-width:1400px){.grid{grid-template-columns:1fr 1fr 1fr}}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--mut);font-weight:500}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+pre{background:#0b0d11;border:1px solid var(--line);border-radius:8px;padding:10px;max-height:300px;overflow:auto;font-size:12px}
+.mut{color:var(--mut)}
+.pill{display:inline-block;font-size:11px;padding:2px 7px;border-radius:99px;border:1px solid var(--line)}
+.pill.sent{color:var(--ok);border-color:#1d4d33}
+.pill.failed{color:var(--err);border-color:#5b2124}
+.pill.pending{color:var(--warn);border-color:#5a4413}
+.qr{background:#fff;padding:10px;border-radius:12px;display:inline-block}
+.killbar{padding:8px 18px;background:#3a1416;color:#ffb4b6;border-bottom:1px solid #5b2124;display:none}
+.killbar.on{display:block}
+#toast-wrap{position:fixed;right:16px;bottom:16px;z-index:100;display:flex;flex-direction:column;gap:8px;max-width:380px}
+.toast{padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);box-shadow:0 6px 24px rgba(0,0,0,.4);font-size:13px;opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s;white-space:pre-wrap}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.err{border-color:#5b2124;color:#ffb4b6}
+.toast.ok{border-color:#1d4d33;color:#b8f0cf}
+</style>
+</head>
+<body>
+<header>
+  <h1>🦞 {{ 'zaloclaw-g2g' if role == 'g2g' else 'zaloclaw-studio' }}</h1>
+  <nav id="tabs">
+    <button class="tab active" data-tab="accounts" hx-get="/ui/tab/accounts" hx-target="#tab-content" hx-swap="innerHTML" hx-on::after-request="setTab('accounts')">Tài khoản</button>
+    {% if role != 'g2g' %}
+    <button class="tab" data-tab="contacts" hx-get="/ui/tab/contacts" hx-target="#tab-content" hx-swap="innerHTML" hx-on::after-request="setTab('contacts')">Tệp KH</button>
+    {% endif %}
+    <button class="tab" data-tab="groups" hx-get="/ui/tab/groups" hx-target="#tab-content" hx-swap="innerHTML" hx-on::after-request="setTab('groups')">Nhóm</button>
+    {% if role != 'g2g' %}
+    <button class="tab" data-tab="campaigns" hx-get="/ui/tab/campaigns" hx-target="#tab-content" hx-swap="innerHTML" hx-on::after-request="setTab('campaigns')">Chiến dịch</button>
+    {% endif %}
+    {% if role != 'campaign' %}
+    <button class="tab" data-tab="autobot" hx-get="/ui/tab/autobot" hx-target="#tab-content" hx-swap="innerHTML" hx-on::after-request="setTab('autobot')">🔀 Pipeline G2G</button>
+    {% endif %}
+    <button class="tab" data-tab="logs" hx-get="/ui/tab/logs" hx-target="#tab-content" hx-swap="innerHTML" hx-on::after-request="setTab('logs')">Log</button>
+    {% if role != 'g2g' %}
+    <button class="tab" data-tab="scans" hx-get="/ui/tab/scans" hx-target="#tab-content" hx-swap="innerHTML" hx-on::after-request="setTab('scans')">Quét nhóm</button>
+    {% endif %}
+    <button class="tab" data-tab="settings" hx-get="/ui/tab/settings" hx-target="#tab-content" hx-swap="innerHTML" hx-on::after-request="setTab('settings')">Cài đặt</button>
+  </nav>
+  <div class="spacer"></div>
+  {% if kill %}<span class="badge err">⛔ KILLSWITCH</span>{% endif %}
+  {% if quiet and quiet.active %}<span class="badge warn">🌙 Giờ im lặng → {{ quiet.until }}</span>{% endif %}
+  {% if accounts %}<span class="badge {{ 'ok' if (accounts | selectattr('enabled','equalto',1) | list | length) == (accounts | length) else 'warn' }}">nick bật: {{ accounts | selectattr('enabled','equalto',1) | list | length }}/{{ accounts | length }}</span>{% endif %}
+  <span class="badge">queue: {{ qdepth }}</span>
+  <form hx-post="/killswitch" hx-swap="none" style="margin:0">
+    {% if kill %}<input type="hidden" name="on" value="0"><button class="ok" type="submit">Bật lại gửi</button>
+    {% else %}<input type="hidden" name="on" value="1"><button class="danger" type="submit">DỪNG KHẨN</button>{% endif %}
+  </form>
+</header>
+<div class="killbar {% if kill %}on{% endif %}">⛔ KILLSWITCH đang bật — mọi lượt gửi thật bị chặn. Bấm "Bật lại gửi" để tiếp tục.</div>
+<script>
+function toast(msg, kind){
+  try{
+    var w=document.getElementById('toast-wrap');
+    if(!w){w=document.createElement('div');w.id='toast-wrap';document.body.appendChild(w);}
+    var t=document.createElement('div');
+    t.className='toast'+(kind?' '+kind:'');
+    t.textContent=String(msg);
+    w.appendChild(t);
+    requestAnimationFrame(function(){t.classList.add('show');});
+    setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove();},250);}, kind==='err'?6000:3500);
+  }catch(e){ console.log('toast',kind,msg); }
+}
+function jparse(x){try{return JSON.parse((x&&(x.responseText||x.response))||'{}');}catch(e){return {};}}
+// Surface any HTMX/network error so a button never fails silently.
+document.addEventListener('htmx:responseError', function(e){
+  toast('Lỗi '+e.detail.xhr.status+': '+e.detail.xhr.responseText.slice(0,180),'err');
+});
+document.addEventListener('htmx:sendError', function(e){
+  toast('Không kết nối được máy chủ (mạng?)','err');
+});
+document.addEventListener('htmx:timeout', function(e){
+  toast('Yêu cầu quá lâu — thử lại','err');
+});
+function openQrModal(){var m=document.getElementById('qr-modal');if(m){m.style.display='block';}window.qrOpen=true;}
+function closeQrModal(){var m=document.getElementById('qr-modal');if(m){m.style.display='none';}window.qrOpen=false;}
+function openGrpModal(){var m=document.getElementById('grp-modal');if(m){m.style.display='block';window.grpOpen=true;}}
+function closeGrpModal(){var m=document.getElementById('grp-modal');if(m){m.style.display='none';window.grpOpen=false;}}
+function setTab(name){
+  document.querySelectorAll('#tabs .tab').forEach(function(b){b.classList.toggle('active', b.dataset.tab===name);});
+  window.currentTab=name;
+}
+function renameFile(id, cur){
+  var n=prompt('Tên mới cho tệp:', cur); if(!n) return;
+  htmx.ajax('POST','/files/'+id+'/rename',{values:{name:n},target:'body',swap:'none'}).then(function(){htmx.trigger('#contact-files','refresh');});
+}
+function editContact(phone, name, gender){
+  var nn=prompt('Tên hiển thị:', name||''); if(nn===null) return;
+  var gg=prompt('Giới tính (nam/nữ, để trống = bỏ qua):', gender||''); if(gg===null) return;
+  htmx.ajax('POST','/contacts/update',{values:{phone:phone, display_name:nn, gender:gg},target:'body',swap:'none'}).then(function(){refreshFileView();});
+}
+function removeContact(fid, phone){
+  if(!confirm('Xóa SĐT '+phone+' khỏi tệp này?')) return;
+  htmx.ajax('POST','/files/'+fid+'/member/remove',{values:{phone:phone},target:'body',swap:'none'}).then(function(){refreshFileView();});
+}
+function deleteContact(phone){
+  if(!confirm('XÓA HẲN SĐT '+phone+' khỏi mọi tệp & liên hệ?')) return;
+  htmx.ajax('POST','/contacts/delete',{values:{phone:phone},target:'body',swap:'none'}).then(function(){refreshFileView();});
+}
+function refreshFileView(){
+  var inner=document.getElementById('file-view-inner');
+  var fid=inner?inner.getAttribute('data-fid'):null;
+  if(fid){ htmx.ajax('GET','/ui/file/'+fid,'#file-view'); }
+  htmx.trigger('#contact-files','refresh');
+}
+function refreshCampaignEdit(cid){
+  htmx.ajax('GET','/ui/campaign/'+cid+'/edit',{target:'#campaign-edit',swap:'innerHTML'});
+}
+function acctRefresh(){ htmx.trigger('#accounts-body','refresh'); }
+function acctRename(id, cur){
+  var n=prompt('Tên mới cho nick '+id+':', cur||''); if(n===null) return;
+  htmx.ajax('POST','/accounts/'+id+'/rename',{values:{name:n},target:'body',swap:'none'})
+    .then(function(){ toast('Đã đổi tên nick '+id,'ok'); acctRefresh(); });
+}
+function acctDelete(id, cur){
+  if(!confirm('XOÁ nick '+id+' ('+(cur||'')+') khỏi panel?\nThao tác này gỡ tài khoản khỏi hệ thống.')) return;
+  var rm=confirm('Xoá LUÔN file đăng nhập (credentials) của nick?\nOK = xoá hằn (phải quét QR lại sau)\nCancel = chỉ gỡ khỏi panel, GIỮ file creds');
+  htmx.ajax('POST','/accounts/'+id+'/delete',{values:{remove_creds:(rm?'1':'0')},target:'body',swap:'none'})
+    .then(function(){ acctRefresh(); });
+}
+// -------------------------------------------------- ordered block builder
+// A campaign body is an ordered list of blocks (text / image / link). Rows can
+// be reordered; images upload the moment they are picked and are referenced by
+// stored path, so reordering never breaks an upload.
+function blkJson(id){
+  var el=document.getElementById(id); if(!el) return [];
+  var out=[];
+  el.querySelectorAll('.blk-list > .blk').forEach(function(row){
+    var t=row.getAttribute('data-type');
+    if(t==='text'){ var v=row.querySelector('.blk-text'); out.push({type:'text', content:(v?v.value:'')}); }
+    else if(t==='image'){
+      var cap=row.querySelector('.blk-cap');
+      var o={type:'image', caption:(cap?cap.value:'')};
+      var s=row.getAttribute('data-src'); if(s) o.src=s;
+      var r=row.getAttribute('data-ref'); if(r) o.media_ref=r;
+      out.push(o);
+    } else if(t==='link'){
+      var u=row.querySelector('.blk-url'); var lc=row.querySelector('.blk-cap');
+      out.push({type:'link', url:(u?u.value:''), caption:(lc?lc.value:'')});
+    }
+  });
+  return out;
+}
+function blkSync(id){
+  var el=document.getElementById(id); if(!el) return;
+  var h=el.querySelector('.blk-json'); if(h) h.value=JSON.stringify(blkJson(el.id));
+}
+function blkBind(id){
+  var el=document.getElementById(id); if(!el || el.getAttribute('data-bound')) return;
+  el.setAttribute('data-bound','1');
+  el.addEventListener('input', function(){ blkSync(id); });
+  el.addEventListener('change', function(){ blkSync(id); });
+}
+function blkButton(label, cls, fn){
+  var b=document.createElement('button'); b.type='button'; b.className=cls; b.style.padding='2px 8px'; b.textContent=label; b.onclick=fn; return b;
+}
+function blkThumb(row, url){
+  var th=row.querySelector('.blk-thumb'); if(!th) return;
+  th.innerHTML='';
+  if(url){ var im=document.createElement('img'); im.src=url; im.style.cssText='height:46px;border-radius:5px;border:1px solid var(--line)'; th.appendChild(im); }
+}
+function blkUpload(id, row, input){
+  var f=input.files && input.files[0]; if(!f) return;
+  var fd=new FormData(); fd.append('file', f);
+  row.setAttribute('data-uploading','1');
+  fetch('/upload/image',{method:'POST', body:fd}).then(function(r){return r.json();}).then(function(j){
+    row.removeAttribute('data-uploading');
+    if(j && j.ok){
+      row.setAttribute('data-src', j.src); row.setAttribute('data-ref', j.url); blkThumb(row, j.url);
+      toast('Đã tải ảnh lên', 'ok');
+    } else { toast('Lỗi tải ảnh: '+((j&&j.error)||'không rõ'), 'err'); }
+    blkSync(id);
+  }).catch(function(){ row.removeAttribute('data-uploading'); toast('Lỗi tải ảnh', 'err'); });
+}
+function blkMake(id, data){
+  data = data || {};
+  var type = data.type || 'text';
+  var row=document.createElement('div');
+  row.className='blk'; row.setAttribute('data-type', type);
+  row.style.cssText='border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px;background:var(--panel2)';
+  var head=document.createElement('div');
+  head.className='row'; head.style.cssText='justify-content:space-between;align-items:center;margin-bottom:4px';
+  var lbl=document.createElement('span'); lbl.className='mut'; lbl.style.fontSize='11px';
+  lbl.textContent = type==='text' ? '📝 Chữ' : (type==='image' ? '🖼 Hình ảnh' : '🔗 Link');
+  var ctrl=document.createElement('span'); ctrl.className='row'; ctrl.style.gap='4px';
+  ctrl.appendChild(blkButton('▲','sec',function(){ blkMove(id, row, -1); }));
+  ctrl.appendChild(blkButton('▼','sec',function(){ blkMove(id, row, 1); }));
+  ctrl.appendChild(blkButton('✕','danger',function(){ row.remove(); blkSync(id); }));
+  head.appendChild(lbl); head.appendChild(ctrl); row.appendChild(head);
+  if(type==='text'){
+    var ta=document.createElement('textarea'); ta.className='blk-text'; ta.style.minHeight='64px';
+    ta.placeholder='Nội dung… dùng {name} / {salutation}'; ta.value=data.content||'';
+    row.appendChild(ta);
+  } else if(type==='image'){
+    if(data.src && !data.media_ref){ try{ var _b=String(data.src).split('/').pop(); if(_b) data.media_ref='/media/'+_b; }catch(e){} }
+    var wrap=document.createElement('div'); wrap.className='row'; wrap.style.alignItems='center';
+    var th=document.createElement('div'); th.className='blk-thumb';
+    var fi=document.createElement('input'); fi.type='file'; fi.className='blk-file'; fi.accept='image/*'; fi.style.maxWidth='240px';
+    fi.onchange=function(){ blkUpload(id, row, fi); };
+    wrap.appendChild(th); wrap.appendChild(fi);
+    var cap=document.createElement('input'); cap.className='blk-cap'; cap.placeholder='Chú thích ảnh (tuỳ chọn)'; cap.style.marginTop='6px';
+    cap.value=data.caption||'';
+    if(data.src) row.setAttribute('data-src', data.src);
+    if(data.media_ref||data.ref) row.setAttribute('data-ref', data.media_ref||data.ref);
+    row.appendChild(wrap); row.appendChild(cap);
+    blkThumb(row, data.media_ref||data.ref||'');
+  } else if(type==='link'){
+    var u=document.createElement('input'); u.className='blk-url'; u.placeholder='https://…'; u.value=data.url||'';
+    var lc=document.createElement('input'); lc.className='blk-cap'; lc.placeholder='Chú thích link (tuỳ chọn)'; lc.style.marginTop='6px';
+    lc.value=data.caption||'';
+    row.appendChild(u); row.appendChild(lc);
+  }
+  return row;
+}
+function blkAdd(id, type){
+  var el=document.getElementById(id); if(!el) return;
+  var row=blkMake(id, {type:type});
+  el.querySelector('.blk-list').appendChild(row);
+  blkSync(id);
+  var inp=row.querySelector('textarea,input'); if(inp) inp.focus();
+}
+function blkMove(id, row, dir){
+  var sib = dir<0 ? row.previousElementSibling : row.nextElementSibling;
+  if(!sib) return;
+  if(dir<0) row.parentNode.insertBefore(row, sib);
+  else row.parentNode.insertBefore(sib, row);
+  blkSync(id);
+}
+function blkBuild(id, init){
+  var el=document.getElementById(id); if(!el) return;
+  var list=el.querySelector('.blk-list'); list.innerHTML='';
+  (init||[]).forEach(function(b){ list.appendChild(blkMake(id, b)); });
+  blkBind(id); blkSync(id);
+}
+function blkPreview(id){
+  blkSync(id);
+  var el=document.getElementById(id); if(!el) return;
+  var fd=new FormData(); fd.append('blocks_json', el.querySelector('.blk-json').value);
+  fetch('/preview-blocks',{method:'POST', body:fd}).then(function(r){return r.json();}).then(function(j){
+    function fmt(rows){ return (rows||[]).map(function(x){ return (x.k==='text'?'💬 ':(x.k==='image'?'🖼 ':'🔗 '))+(x.p||''); }).join('\n'); }
+    toast('NAM:\n'+fmt(j.male)+'\n\nNỮ:\n'+fmt(j.female));
+  }).catch(function(){ toast('Lỗi xem thử','err'); });
+}
+function blkInit(el){
+  if(!el || el.getAttribute('data-ready')) return;
+  el.setAttribute('data-ready','1');
+  var init=[];
+  var src=el.querySelector('.blk-init');
+  try{ init=JSON.parse((src?src.value:'')||'[]'); }catch(e){ init=[]; }
+  blkBuild(el.id, init);
+}
+function blkValidate(scope){
+  var ok=true;
+  (scope||document).querySelectorAll('.blk-builder').forEach(function(b){
+    blkSync(b.id);
+    if(b.querySelector('.blk[data-uploading]')){ ok=false; toast('Đang tải ảnh — đợi xong rồi lưu nhé','err'); }
+    b.querySelectorAll('.blk[data-type="image"]').forEach(function(r){
+      if(!r.getAttribute('data-src') && !r.getAttribute('data-ref')){ ok=false; toast('Có ô Ảnh chưa chọn tệp','err'); }
+    });
+  });
+  return ok;
+}
+document.addEventListener('htmx:afterSwap', function(){ document.querySelectorAll('.blk-builder').forEach(blkInit); });
+document.addEventListener('DOMContentLoaded', function(){ document.querySelectorAll('.blk-builder').forEach(blkInit); });
+// ------------------------------------------------------------- autobot tab
+function abAfter(ev){
+  var r=jparse(ev.detail.xhr);
+  toast(r.ok?('Đã tạo luồng'+(r.note||'')):('Lỗi: '+(r.error||'')), r.ok?'ok':'err');
+  if(r.ok){ var f=document.getElementById('autobot-form'); if(f) f.reset(); }
+  abRefresh();
+}
+function abRefresh(force){
+  if(!force && abBusy()) return;   // never clobber an open/edited form
+  htmx.ajax('GET','/ui/autobot',{target:'#rules-box',swap:'outerHTML'});
+}
+// True while an edit row is open or a field inside the partial is focused, so
+// the 6s auto-refresh can't wipe the form you are filling in (F3).
+function abBusy(){
+  var rows=document.querySelectorAll('.ab-edit-row');
+  for(var i=0;i<rows.length;i++){ if(rows[i].offsetParent!==null) return true; }  // an edit row is open
+  var a=document.activeElement;
+  return !!(a && a.closest && a.closest('#rules-box') &&
+            (a.tagName==='INPUT'||a.tagName==='SELECT'||a.tagName==='TEXTAREA'));
+}
+document.addEventListener('htmx:beforeRequest', function(e){
+  if(e.detail && e.detail.elt && e.detail.elt.id==='rules-box' && abBusy()) e.preventDefault();
+});
+function abEdit(rid){
+  var el=document.getElementById('ab-edit-'+rid);
+  if(!el) return;
+  var opening = (el.style.display==='none' || !el.style.display);
+  document.querySelectorAll('.ab-edit-row').forEach(function(r){ r.style.display='none'; });
+  if(opening){
+    el.style.display='';
+    var f=el.querySelector('input:not([type=hidden])'); if(f) f.focus();
+  }
+}
+function abSaved(ev, rid){
+  var j=jparse(ev.detail.xhr);
+  toast(j.ok?'Đã lưu luồng':('Lỗi: '+(j.error||'')), j.ok?'ok':'err');
+  if(j.ok){
+    var el=document.getElementById('ab-edit-'+rid); if(el) el.style.display='none';
+    abRefresh(true);
+  }
+}
+// Type-to-filter a group <select> by name (F1).
+function abSearch(inp){
+  var sel=inp.parentElement && inp.parentElement.querySelector('select');
+  if(!sel) return;
+  var q=(inp.value||'').toLowerCase().trim(), chosen=sel.value, first=null, hit=false;
+  Array.prototype.forEach.call(sel.options, function(o){
+    var ok=!q || (o.text||'').toLowerCase().indexOf(q)>=0;
+    o.hidden=!ok;
+    if(ok && !first) first=o;
+    if(ok && o.value===chosen) hit=true;
+  });
+  if(!hit && first) sel.value=first.value;
+}
+document.addEventListener('input', function(e){
+  if(e.target && e.target.classList && e.target.classList.contains('ab-search')) abSearch(e.target);
+});
+function abDelete(rid, name){
+  if(!confirm('Xoá luồng “'+(name||rid)+'”?\nLog của luồng này cũng bị xoá.')) return;
+  htmx.ajax('POST','/autobot/'+rid+'/delete',{target:'body',swap:'none'}).then(function(){ abRefresh(); });
+}
+</script>
+<main>
+  {% block content %}{% endblock %}
+</main>
+
+<!-- Modals live at page level (outside #tab-content) so tab swaps never wipe them -->
+<div id="qr-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50;padding:40px;overflow:auto"
+     onclick="if(event.target===this){this.style.display='none';window.qrOpen=false}">
+  <div id="qr-body" style="max-width:380px;margin:40px auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px"></div>
+</div>
+<div id="grp-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50;padding:30px;overflow:auto"
+     onclick="if(event.target===this){this.style.display='none';window.grpOpen=false}">
+  <div id="grp-body" style="max-width:860px;margin:20px auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px"></div>
+</div>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<table>
+  <tr><th>Tệp</th><th>Nguồn</th><th>SĐT</th><th></th></tr>
+  {% for f in files %}
+  <tr>
+    <td><b>{{ f.name }}</b><br><span class="mut" style="font-size:11px">#{{ f.id }} · {{ f.created_at | datetime_hm }}</span></td>
+    <td class="mut" style="font-size:12px">{{ f.source or '—' }}</td>
+    <td><span class="pill">{{ f.n }}</span></td>
+    <td class="row" style="justify-content:flex-end">
+      <button class="sec" hx-get="/ui/file/{{ f.id }}" hx-target="#file-view" hx-swap="innerHTML"
+              hx-on::after-request="document.getElementById('file-view').scrollIntoView({behavior:'smooth'})">Mở</button>
+      <button class="sec" onclick='renameFile({{ f.id }}, {{ f.name|tojson }})'>✏️ Đổi tên</button>
+      <a class="sec" href="/files/{{ f.id }}/export.csv"
+         style="text-decoration:none;padding:6px 10px;border:1px solid var(--line);border-radius:8px">📥 CSV</a>
+      <button class="danger"
+              hx-post="/files/{{ f.id }}/delete" hx-swap="none"
+              hx-confirm="Xóa tệp '{{ f.name }}'? (SĐT vẫn còn trong liên hệ, chỉ gỡ khỏi tệp này)"
+              hx-on::after-request="htmx.trigger('#contact-files','refresh');document.getElementById('file-view').innerHTML=''">🗑 Xóa</button>
+    </td>
+  </tr>
+  {% endfor %}
+  {% if not files %}<tr><td colspan="4" class="mut">Chưa có tệp nào. Tạo tệp ở trên, hoặc tạo từ nhóm đã quét trong trang tệp.</td></tr>{% endif %}
+</table>

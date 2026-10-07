@@ -1,0 +1,20 @@
+node_modules/
+data/
+webapp/.venv/
+__pycache__/
+*.pyc
+*.log
+logs/
+
+# Local DB snapshots contain customer PII (phones, names, Zalo ids) — never publish
+backups/zs.db*
+backups/*.db
+backups/*.db-*
+backups/*.sqlite*
+
+# local working snapshots — git history supersedes these
+backups/
+
+# local secrets / runtime overrides — never publish
+.env
+deploy/*.env

@@ -1,0 +1,14 @@
+.git
+.gitignore
+**/.venv
+**/node_modules
+__pycache__/
+**/__pycache__/
+*.pyc
+data/
+logs/
+*.log
+.env
+deploy/*.env
+!deploy/*.env.example
+AUDIT-*.md
