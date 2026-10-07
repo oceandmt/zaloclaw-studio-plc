@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block content %}
+<div id="tab-content" hx-get="/ui/tab/accounts" hx-trigger="load" hx-swap="innerHTML"
+     hx-on::after-request="setTab('accounts')"></div>
+{% endblock %}

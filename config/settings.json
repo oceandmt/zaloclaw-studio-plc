@@ -1,0 +1,33 @@
+{
+  "defaults": {
+    "dry_run": true,
+    "max_per_hour": 30,
+    "max_per_day": 200,
+    "max_friend_per_day": 20,
+    "min_gap_seconds": 25,
+    "jitter_seconds": 15,
+    "auto_resolve_contacts": true,
+    "set_alias_on_send": true,
+    "warmup_factor": 1.0,
+    "gender_map": {
+      "male": "Anh",
+      "female": "Chị",
+      "unknown": "Anh/Chị"
+    },
+    "group_scan_gap_seconds": 45,
+    "group_scan_jitter_seconds": 20,
+    "group_scan_per_hour": 20,
+    "group_scan_per_day": 60,
+    "group_sync_gap_seconds": 600,
+    "dedupe_sent_days": 3
+  },
+  "safety": {
+    "killswitch_file": "data/KILLSWITCH",
+    "require_dry_run_first": true,
+    "block_country_mismatch": false
+  },
+  "bridge": {
+    "node_bin": "node",
+    "script": "bridge/zalo.mjs"
+  }
+}

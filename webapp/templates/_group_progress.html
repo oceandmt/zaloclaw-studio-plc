@@ -1,0 +1,19 @@
+{% if p and p.status == 'running' %}
+<td id="prog-{{ gid }}" hx-get="/ui/group/{{ gid }}/progress" hx-trigger="every 2s" hx-swap="outerHTML">
+  {% set pct = ((p.fetched / p.total * 100) if p.total else 10) | round(0) | int %}
+  <div style="min-width:160px">
+    <div class="mut" style="font-size:11px">⏳ đang quét… {{ p.fetched }}{% if p.total %}/{{ p.total }}{% endif %}</div>
+    <div style="background:var(--panel2);border-radius:6px;height:6px;margin-top:3px;overflow:hidden">
+      <div style="height:6px;background:var(--acc);width:{{ pct }}%;transition:width .3s"></div>
+    </div>
+  </div>
+</td>
+{% elif p and p.status == 'done' %}
+<td id="prog-{{ gid }}"><span class="pill {{ 'sent' if not p.partial else 'pending' }}">{{ '✓ đủ' if not p.partial else '◐ một phần' }} · {{ p.fetched }}{% if p.total %}/{{ p.total }}{% endif %}</span></td>
+{% elif p and p.status == 'blocked' %}
+<td id="prog-{{ gid }}"><span class="pill failed">⛔ bị chặn</span> <span class="mut" style="font-size:11px">{{ p.error }}</span></td>
+{% elif p and p.status == 'error' %}
+<td id="prog-{{ gid }}"><span class="pill failed">✖ lỗi</span> <span class="mut" style="font-size:11px">{{ p.error }}</span></td>
+{% else %}
+<td id="prog-{{ gid }}"><span class="mut">—</span></td>
+{% endif %}

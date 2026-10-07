@@ -1,0 +1,46 @@
+# zaloclaw-studio — Docker Compose (Option B).
+# Two roles, two containers, ONE shared ./data volume:
+#   * SQLite DB  (data/zs.db)              — shared, same as the 2 systemd services
+#   * session socket (data/sessiond-*.sock)— one Zalo session per account, shared
+#   * Zalo credentials (data/accounts/)    — persisted across restarts
+#
+#   HOST=127.0.0.1 docker compose up -d        # local only (default)
+#   HOST=$(tailscale ip -4) docker compose up -d  # expose on Tailscale
+#
+# First run: open the panel, add an account, scan the QR. Then restart if needed.
+
+x-zaloclaw: &zaloclaw
+  build: .
+  image: zaloclaw-studio:local
+  restart: unless-stopped
+  user: "${UID:-1000}:${GID:-1000}"
+  volumes:
+    - ./data:/app/data
+    - ./logs:/app/logs
+
+services:
+  panel:
+    <<: *zaloclaw
+    container_name: zaloclaw-panel
+    environment:
+      ZS_ROLE: campaign
+    command: ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "18090", "--log-level", "warning"]
+    ports:
+      - "${HOST:-127.0.0.1}:18090:18090"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18090/healthz',timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  g2g:
+    <<: *zaloclaw
+    container_name: zaloclaw-g2g
+    environment:
+      ZS_ROLE: g2g
+    command: ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "18091", "--log-level", "warning"]
+    ports:
+      - "${HOST:-127.0.0.1}:18091:18091"
+    depends_on:
+      - panel

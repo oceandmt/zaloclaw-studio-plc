@@ -1,0 +1,55 @@
+<table>
+  <tr><th>Tên</th><th>Loại</th><th>TK</th><th>Trạng thái</th><th>Tiến độ</th><th></th></tr>
+  {% for c in campaigns %}
+  <tr>
+    <td><b>{{ c.name }}</b><br><span class="mut" style="font-size:11px"><code>{{ c.id }}</code></span>
+        {% for t in (c.tags|fromjson) %}<span class="pill" style="font-size:10px">🏷 {{ t }}</span>{% endfor %}
+        <div class="mut" style="font-size:11px;margin-top:2px">🧩 {{ c|blk_summary }}</div>
+        {% set imgs = (c|blk_json)|selectattr('type','equalto','image')|map(attribute='src')|list %}
+        {% if imgs %}<div style="margin-top:4px">
+          {% for p in imgs[:6] %}{% set u = p|media_url %}{% if u %}<img src="{{ u }}" title="{{ p }}" style="height:34px;border-radius:4px;border:1px solid var(--line);margin-right:3px;vertical-align:middle">{% endif %}{% endfor %}
+          {% if imgs|length > 6 %}<span class="mut" style="font-size:11px">+{{ imgs|length - 6 }} ảnh</span>{% endif %}
+        </div>{% endif %}</td>
+    <td>{{ 'Gửi tin' if c.kind == 'message' else 'Kết bạn' }}</td>
+    <td class="mut">{{ c.account_id }}</td>
+    <td>
+      {% if c.status == 'running' %}<span class="pill sent">đang chạy</span>
+      {% elif c.status == 'paused' %}<span class="pill pending">tạm dừng</span>
+      {% elif c.status == 'done' %}<span class="pill">xong</span>
+      {% elif c.status == 'error' %}<span class="pill failed">lỗi</span>
+      {% else %}<span class="pill">nháp</span>{% endif %}
+      {% if c.dry_run %}<span class="pill" style="color:var(--acc);border-color:#24406e">DRY</span>{% else %}<span class="pill failed">LIVE</span>{% endif %}
+    </td>
+    <td><span class="mut" hx-get="/ui/campaign/{{ c.id }}/counts" hx-trigger="load, every 8s" hx-swap="innerHTML">…</span></td>
+    <td class="row" style="justify-content:flex-end">
+      <button class="sec" hx-post="/campaigns/{{ c.id }}/build" hx-swap="none" hx-disabled-elt="this"
+              hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('Đã resolve '+r.resolved+' SĐT'):('Lỗi: '+JSON.stringify(r)));htmx.trigger('#campaigns-body','refresh')">Resolve SĐT</button>
+      <button class="sec" hx-get="/ui/campaign/{{ c.id }}/edit" hx-target="#campaign-edit" hx-swap="innerHTML"
+              hx-on::after-request="document.getElementById('campaign-edit').scrollIntoView({behavior:'smooth'})">✏️ Sửa</button>
+      {% if c.status == 'draft' %}<button class="ok" hx-post="/campaigns/{{ c.id }}/start" hx-swap="none" hx-disabled-elt="this"
+              hx-confirm="Chiến dịch đang là NHÁP. Bắt đầu chạy?"
+              hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('Đã chạy · '+r.queued+' tin xếp hàng'+(r.warn?(' — '+r.warn):'')):('Lỗi: '+(r.error||JSON.stringify(r))), r.ok?(r.warn?'':'ok'):'err');htmx.trigger('#campaigns-body','refresh')">▶ Chạy nháp</button>{% endif %}
+      <button class="ok" hx-post="/campaigns/{{ c.id }}/start" hx-swap="none" hx-disabled-elt="this"
+              {% if not c.dry_run %}hx-confirm="Chiến dịch đang ở chế độ LIVE — sẽ gửi TIN THẬT tới người nhận. Tiếp tục?"{% endif %}
+              hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?(r.resumed?'Đã tiếp tục chiến dịch':('Đã chạy · '+r.queued+' tin xếp hàng'+(r.warn?(' — '+r.warn):''))):('Lỗi: '+(r.error||JSON.stringify(r))), r.ok?(r.warn?'':'ok'):'err');htmx.trigger('#campaigns-body','refresh')">{{ 'Tiếp tục' if c.status == 'paused' else 'Chạy' }}</button>
+      {% if c.status in ('done', 'error', 'paused') %}<button class="sec" hx-post="/campaigns/{{ c.id }}/retry" hx-swap="none" hx-disabled-elt="this"
+              hx-confirm="Đưa các SĐT THẤT BẠI/BỎ QUA về hàng chờ để gửi lại?"
+              hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('Đã đưa lại '+r.reset+' SĐT vào hàng chờ — bấm Chạy'):('Lỗi: '+(r.error||'')), r.ok?'ok':'err');htmx.trigger('#campaigns-body','refresh')">↻ Chạy lại lỗi</button>{% endif %}
+      <button class="sec" hx-post="/campaigns/{{ c.id }}/pause" hx-swap="none" hx-disabled-elt="this"
+              hx-on::after-request="toast('Đã tạm dừng (giữ hàng đợi)');htmx.trigger('#campaigns-body','refresh')">Dừng</button>
+      <button class="sec" hx-post="/campaigns/{{ c.id }}/stop" hx-swap="none"
+              hx-confirm="Dừng HẲN chiến dịch '{{ c.name }}'? Các SĐT chưa gửi sẽ bị bỏ qua."
+              hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('Đã dừng hẳn · bỏ qua '+r.skipped+' SĐT'):'Lỗi');htmx.trigger('#campaigns-body','refresh')">⏹ Dừng hẳn</button>
+      <button class="sec" hx-post="/campaigns/{{ c.id }}/dry" hx-vals='{"dry":"{{ 0 if c.dry_run else 1 }}"}'
+              hx-swap="none" hx-disabled-elt="this"
+              {% if c.dry_run %}hx-confirm="Chuyển chiến dịch sang LIVE? Từ giờ các tin sẽ được GỬI THẬT."{% endif %}
+              hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?(r.dry_run?'Đã chuyển về DRY (không gửi thật)':'⚠️ Đã bật LIVE (gửi thật!)'):('Lỗi: '+JSON.stringify(r)), r.dry_run?'':'err');htmx.trigger('#campaigns-body','refresh')">
+        {{ 'Bật LIVE' if c.dry_run else 'Về DRY' }}</button>
+      <button class="danger" hx-post="/campaigns/{{ c.id }}/delete" hx-swap="none"
+              hx-confirm="Xóa chiến dịch '{{ c.name }}' và toàn bộ SĐT của nó?"
+              hx-on::after-request="toast('Đã xóa chiến dịch');htmx.trigger('#campaigns-body','refresh')">🗑 Xóa</button>
+    </td>
+  </tr>
+  {% endfor %}
+  {% if not campaigns %}<tr><td colspan="6" class="mut">Chưa có chiến dịch.</td></tr>{% endif %}
+</table>

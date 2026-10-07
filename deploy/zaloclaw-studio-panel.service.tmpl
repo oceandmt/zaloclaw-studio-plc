@@ -1,0 +1,23 @@
+[Unit]
+Description=zaloclaw-studio Control Panel (Zalo marketing · QR login · campaigns)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__APP_DIR__/webapp
+Environment=PYTHONUNBUFFERED=1
+Environment=HOME=__HOME_DIR__
+Environment=ZS_ROLE=campaign
+ExecStart=__APP_DIR__/webapp/.venv/bin/python -m uvicorn app:app --host __HOST__ --port __PANEL_PORT__ --log-level warning
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillMode=control-group
+LimitNOFILE=16384
+StandardOutput=append:__APP_DIR__/logs/panel-systemd.log
+StandardError=append:__APP_DIR__/logs/panel-systemd.err
+SyslogIdentifier=zaloclaw-studio-panel
+
+[Install]
+WantedBy=default.target

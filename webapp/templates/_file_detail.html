@@ -1,0 +1,77 @@
+<div id="file-view-inner" data-fid="{{ fid }}">
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <div><b>📄 {{ file.name if file else ('Tệp #' ~ fid) }}</b>
+      <div class="mut" style="font-size:11px">Nguồn: {{ file.source if file else '—' }}</div></div>
+    <button class="sec" onclick="document.getElementById('file-view').innerHTML=''">Đóng</button>
+  </div>
+
+  <div class="row" style="margin-top:10px;align-items:flex-end;gap:8px">
+    <div style="flex:1"><label>Thêm SĐT vào tệp (mỗi dòng: SĐT, Tên, Giới tính)</label>
+      <textarea id="file-add" name="text" style="min-height:60px" placeholder="0901234567, Chị B, nữ"></textarea></div>
+    <button class="sec" hx-post="/files/{{ fid }}/import" hx-include="#file-add" hx-swap="none"
+            hx-on::after-request="document.getElementById('file-add').value='';var r=jparse(event.detail.xhr);toast(r.ok?('Đã thêm '+r.added+' SĐT'):('Lỗi: '+(r.error||'')));refreshFileView()">➕ Thêm</button>
+  </div>
+
+  <div class="row" style="margin-top:8px;align-items:flex-end;gap:8px">
+    <div style="flex:1"><label>Thêm SĐT bằng file CSV</label>
+      <input type="file" id="file-csv" name="file" accept=".csv,text/csv,text/plain"
+             style="padding:6px"></div>
+    <button class="sec"
+            hx-post="/files/{{ fid }}/upload"
+            hx-encoding="multipart/form-data"
+            hx-include="#file-csv" hx-swap="none" hx-indicator="#file-up-ind"
+            hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('Đã nhập '+r.added+'/'+r.parsed+' dòng từ '+(r.filename||'CSV')):('Lỗi: '+(r.error||'')));document.getElementById('file-csv').value='';refreshFileView()">📤 Tải CSV lên</button>
+    <span id="file-up-ind" class="htmx-indicator mut">⏳ đang tải…</span>
+    <a class="sec" href="/files/{{ fid }}/export.csv"
+       style="text-decoration:none;padding:8px 12px;border:1px solid var(--line);border-radius:8px">📥 Xuất CSV</a>
+  </div>
+  <p class="mut" style="font-size:11px;margin:4px 0 0">CSV nhận cột: <code>phone, name, gender</code> (hoặc <code>sđt, tên, giới tính</code>). Có/không header đều được.</p>
+
+  <div class="row" style="margin-top:8px;align-items:flex-end;gap:8px">
+    <div style="flex:1"><label>Hoặc lấy từ nhóm đã quét</label>
+      <select id="file-grp" name="gid">
+        {% for g in groups %}<option value="{{ g.group_id }}">{{ g.name or g.group_id }} ({{ g.member_count or g.total_member }})</option>{% endfor %}
+      </select></div>
+    <button class="sec" hx-post="/files/{{ fid }}/from-group" hx-include="#file-grp" hx-swap="none"
+            hx-indicator="#file-grp-ind"
+            hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('Đã thêm '+r.added+'/'+r.total_members+' thành viên'):('Lỗi: '+(r.error||'')));refreshFileView()">📥 Lấy từ nhóm</button>
+    <span id="file-grp-ind" class="htmx-indicator mut">⏳…</span>
+  </div>
+
+  <div class="row" style="margin-top:8px;align-items:flex-end;gap:8px">
+    <div style="flex:1"><label>Tài khoản tra cứu</label><select id="file-res-acct" name="account_id">
+      {% for a in accounts %}<option value="{{ a.id }}">{{ a.id }} — {{ a.display_name or a.name }}</option>{% endfor %}
+      {% if not accounts %}<option value="default">default</option>{% endif %}
+    </select></div>
+    <button class="sec" hx-post="/contacts/resolve" hx-swap="none"
+            hx-vals='{"file_id":"{{ fid }}","only_missing":"1"}' hx-include="#file-res-acct"
+            hx-indicator="#file-res-ind"
+            hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('Đã tra '+r.resolved+'/'+r.total+' KH'):('Lỗi: '+(r.error||'')));refreshFileView()">🔎 Tra tên + giới tính</button>
+    <span id="file-res-ind" class="htmx-indicator mut">⏳ đang tra Zalo…</span>
+    <button class="sec" onclick="document.getElementById('mk-camp-{{ fid }}').style.display='block'">🎯 Tạo chiến dịch từ tệp</button>
+  </div>
+
+  <div id="mk-camp-{{ fid }}" style="display:none;border:1px solid var(--line);border-radius:10px;padding:12px;margin:10px 0">
+    <form hx-post="/campaigns/from-file" hx-swap="none"
+          hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('Đã tạo chiến dịch với '+r.targets+' SĐT'):('Lỗi: '+(r.error||'')));this.reset();document.getElementById('mk-camp-{{ fid }}').style.display='none';htmx.trigger('#campaigns-body','refresh')">
+      <input type="hidden" name="file_id" value="{{ fid }}">
+      <div class="row">
+        <div style="flex:2"><label>Tên chiến dịch</label><input name="name" value="Chiến dịch · {{ file.name if file else fid }}" required></div>
+        <div style="flex:1"><label>Loại</label><select name="kind"><option value="message">Gửi tin</option><option value="friend">Kết bạn</option></select></div>
+      </div>
+      <label>Nội dung ({name} / {salutation})</label>
+      <textarea name="body_template" placeholder="Chào {salutation} {name}, ..."></textarea>
+      <label>Link (tuỳ chọn)</label><input name="url" placeholder="https://...">
+      <div class="row" style="margin-top:8px">
+        <div style="flex:1"><label>Tài khoản gửi</label><select name="account_id">
+          {% for a in accounts %}<option value="{{ a.id }}">{{ a.id }}</option>{% endfor %}</select></div>
+        <label style="margin:0"><input type="checkbox" name="dry_run" checked style="width:auto"> DRY-RUN</label>
+      </div>
+      <div style="margin-top:8px"><button type="submit">Tạo chiến dịch</button></div>
+    </form>
+  </div>
+
+  <div id="file-members-body">
+    {% with fid = fid, members = members %}{% include "_file_members.html" %}{% endwith %}
+  </div>
+</div>

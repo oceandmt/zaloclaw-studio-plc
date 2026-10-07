@@ -1,0 +1,78 @@
+{% set n_on = accounts | selectattr('id') | list | length %}
+<div class="row" style="margin-bottom:12px;gap:14px;align-items:center">
+  <button hx-post="/accounts/new" hx-swap="none"
+          hx-indicator="#add-acct" hx-disabled-elt="this"
+          hx-on::before-request="document.getElementById('qr-body').innerHTML='<p class=mut style=padding:8px>Đang tạo mã QR…</p>';openQrModal()"
+          hx-on::after-request="var r=jparse(event.detail.xhr);if(r.account_id){htmx.ajax('GET','/ui/accounts/'+r.account_id+'/qr','#qr-body')}else{document.getElementById('qr-body').innerHTML='<p style=color:var(--err)>Lỗi tạo tài khoản</p>'}">
+    ➕ Thêm tài khoản Zalo (mã QR hiện ngay)
+  </button>
+  <span id="add-acct" class="htmx-indicator mut">⏳ Đang tạo mã QR…</span>
+  <span class="badge {{ 'ok' if accounts else '' }}">nick đang bật: {{ accounts | selectattr('enabled', 'equalto', 1) | list | length }}/{{ accounts | length }}</span>
+  <span class="mut" style="font-size:12px">Bấm nút → mã QR hiện ra → quét bằng app Zalo. Hệ thống tự đặt tên nick1, nick2…</span>
+</div>
+
+<table>
+  <tr>
+    <th>Nick</th><th>Tài khoản</th><th>Trạng thái</th>
+    <th>Hạn mức hôm nay</th><th>Gần nhất</th><th></th>
+  </tr>
+  {% for a in accounts %}
+  {% set f = (acct_facts or {}).get(a.id, {}) %}
+  {% set s = f.stats or {} %}
+  {% set enabled = f.enabled if f else True %}
+  {% set logged = f.logged_in %}
+  {% set expired = (a.status == 'expired') or (logged == False and a.status == 'active') %}
+  <tr>
+    <td>
+      <b>{{ a.name or a.id }}</b>
+      <br><span class="mut" style="font-size:11px"><code>{{ a.id }}</code></span>
+      {% if not enabled %}<br><span class="pill failed">đang tắt</span>{% endif %}
+    </td>
+    <td>
+      {{ a.display_name or '—' }}
+      {% if a.user_id %}<br><span class="mut" style="font-size:11px">ID: {{ a.user_id }}</span>{% endif %}
+    </td>
+    <td>
+      {% if not enabled %}<span class="pill failed">đang tắt</span>
+      {% elif expired %}<span class="pill failed">hết phiên</span>
+      {% elif logged %}<span class="pill sent">đã đăng nhập</span>
+      {% elif a.status == 'pending_qr' %}<span class="pill pending">chờ quét QR</span>
+      {% elif a.status == 'error' %}<span class="pill failed">lỗi</span>
+      {% else %}<span class="pill">chưa đăng nhập</span>{% endif %}
+      {% if f.stale %}<br><span class="pill pending" title="DB có thông tin nhưng thiếu file creds">⚠ lệch creds</span>{% endif %}
+    </td>
+    <td style="font-size:12px;line-height:1.7">
+      {% if s %}
+      <span class="{{ 'pill failed' if s.sent_day >= s.max_per_day or s.sent_hour >= s.max_per_hour else ('pill pending' if s.sent_day >= s.max_per_day * 0.8 or s.sent_hour >= s.max_per_hour * 0.8 else 'mut') }}" title="tin/giờ · tin/ngày">✉ {{ s.sent_hour }}/{{ s.max_per_hour }} · {{ s.sent_day }}/{{ s.max_per_day }}</span>
+      <span class="{{ 'pill failed' if s.friend_day >= s.max_friend_per_day else ('pill pending' if s.friend_day >= s.max_friend_per_day * 0.8 else 'mut') }}" title="kết bạn/ngày">🤝 {{ s.friend_day }}/{{ s.max_friend_per_day }}</span>
+      <span class="{{ 'pill failed' if s.scans_day >= s.group_scan_per_day else ('pill pending' if s.scans_day >= s.group_scan_per_day * 0.8 else 'mut') }}" title="quét/ngày">🔍 {{ s.scans_day }}/{{ s.group_scan_per_day }}</span>
+      {% else %}<span class="mut">—</span>{% endif %}
+    </td>
+    <td style="font-size:12px">
+      <span class="mut">gửi: {{ s.last_sent_fmt or '—' }}</span><br>
+      <span class="mut">quét: {{ s.last_scan_fmt or '—' }}</span>
+    </td>
+    <td class="row" style="justify-content:flex-end;gap:6px">
+      <button class="sec" hx-post="/accounts/{{ a.id }}/check" hx-swap="none" hx-disabled-elt="this"
+              hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('✅ Session OK · '+(r.name||'')):('⚠ '+(r.error||'session lỗi')), r.ok?'ok':'err');htmx.trigger('#accounts-body','refresh')">🔌 Kiểm tra</button>
+      <button class="sec" hx-post="/accounts/{{ a.id }}/refresh" hx-swap="none" hx-disabled-elt="this"
+              hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?'Đã cập nhật thông tin nick':('Lỗi: '+(r.error||'')), r.ok?'ok':'err');htmx.trigger('#accounts-body','refresh')">🔄</button>
+      <button class="sec" onclick="acctRename('{{ a.id }}', {{ (a.name or a.id) | tojson }})">✏️</button>
+      <button class="sec" hx-post="/accounts/{{ a.id }}/toggle" hx-swap="none" hx-disabled-elt="this"
+              hx-vals='{"enabled": "{{ 0 if enabled else 1 }}"}'
+              hx-on::after-request="var r=jparse(event.detail.xhr);toast(r.ok?('Đã '+(r.enabled?'BẬT':'TẮT')+' nick {{ a.id }}'):('Lỗi: '+(r.error||'')), r.ok?'ok':'err');htmx.trigger('#accounts-body','refresh')">
+        {{ '⏸ Tắt' if enabled else '▶ Bật' }}</button>
+      <button class="sec" hx-post="/accounts/{{ a.id }}/qr" hx-swap="none" hx-disabled-elt="this"
+              hx-on::before-request="document.getElementById('qr-body').innerHTML='<p class=mut>Đang tạo mã QR…</p>';openQrModal()"
+              hx-on::after-request="htmx.ajax('GET','/ui/accounts/{{ a.id }}/qr','#qr-body')">
+        {{ 'Đăng nhập lại' if logged else 'Đăng nhập QR' }}</button>
+      <button class="danger" onclick="acctDelete('{{ a.id }}', {{ (a.name or a.id) | tojson }})">🗑</button>
+    </td>
+  </tr>
+  {% endfor %}
+  {% if not accounts %}<tr><td colspan="6" class="mut">Chưa có tài khoản. Bấm "➕ Thêm tài khoản Zalo".</td></tr>{% endif %}
+</table>
+<p class="mut" style="font-size:12px;margin-top:10px">
+  Hạn mức = số đã dùng / trần cấu hình (tab <b>Cài đặt</b>). Chấm <span class="pill pending">vàng</span> = sắp chạm trần, <span class="pill failed">đỏ</span> = đã chạm trần (nick tạm ngừng gửi để tránh khóa).
+  🔌 Kiểm tra = thử phiên thật; 🔄 = cập nhật tên/ID; ⏸/▶ = tạm dừng dùng nick mà không xoá.
+</p>

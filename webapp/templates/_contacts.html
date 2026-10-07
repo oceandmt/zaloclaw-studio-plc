@@ -1,0 +1,15 @@
+<table>
+  <tr><th>SĐT</th><th>Tên</th><th>Giới tính</th><th>Zalo ID</th><th>Tag</th><th></th></tr>
+  {% for c in contacts %}
+  <tr>
+    <td><code>{{ c.phone }}</code></td>
+    <td>{{ c.display_name or '—' }}</td>
+    <td>{% if c.gender %}{{ 'Nam' if c.gender in ['nam','male','m'] else ('Nữ' if c.gender in ['nữ','nu','female','f'] else c.gender) }}{% else %}<span class="mut">—</span>{% endif %}</td>
+    <td>{% if c.zalo_user_id %}<span class="pill sent">{{ c.zalo_user_id }}</span>{% else %}<span class="pill pending">chưa resolve</span>{% endif %}</td>
+    <td class="mut">{{ c.tags or '—' }}</td>
+    <td class="mut">{{ c.last_error or '' }}</td>
+  </tr>
+  {% endfor %}
+  {% if not contacts %}<tr><td colspan="6" class="mut">Chưa có khách hàng nào.</td></tr>{% endif %}
+</table>
+<p class="mut" style="font-size:12px">{{ contacts|length }} hiển thị</p>
