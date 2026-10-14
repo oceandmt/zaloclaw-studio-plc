@@ -2554,10 +2554,16 @@ def _bot_health_monitor() -> None:
                     log(f"AUTOBOT health :: {aid} socket im (hb {int(now - hb) if hb else -1}s) "
                         f"→ restart")
                     restart_bot(aid)
-                elif quiet > QUIET_S and queued == 0 and buf == 0:
+                elif quiet > QUIET_S and uptime > QUIET_S and queued == 0 and buf == 0:
                     # Socket healthy but the source has been silent for very long:
                     # refresh for session hygiene + a free history backfill.
-                    log(f"AUTOBOT health :: {aid} im nguồn {int(quiet)}s → refresh listener")
+                    # After a refresh, `last_msg` is still old until the source
+                    # speaks again; require the NEW listener to run for a full
+                    # quiet window too, otherwise a quiet source causes a restart
+                    # every TICK seconds and messages arriving in those detach /
+                    # reattach windows can be missed.
+                    log(f"AUTOBOT health :: {aid} im nguồn {int(quiet)}s "
+                        f"(uptime {int(uptime)}s) → refresh listener")
                     restart_bot(aid)
                 else:
                     # live worker stuck in a reconnect/error state for too long
