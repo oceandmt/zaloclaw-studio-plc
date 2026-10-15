@@ -42,6 +42,15 @@ def role_allows_campaign() -> bool:
 
 def role_allows_g2g() -> bool:
     return ROLE in ("all", "g2g")
+
+
+def role_allows_s01() -> bool:
+    """Pipeline G2G-S01 (Signal Commodities Daily) rides in the same process as
+    G2G by default, because one Zalo session per account means S01 and G2G must
+    share ONE session daemon. A dedicated `s01` role is also accepted."""
+    return ROLE in ("all", "g2g", "s01")
+
+
 BRIDGE = ROOT / "bridge" / "zalo.mjs"
 ACCOUNTS_DIR = ROOT / "data" / "accounts"
 MEDIA_DIR = ROOT / "data" / "media"
@@ -1867,6 +1876,23 @@ def _bot_watch_groups(account_id: str) -> list[str]:
         if gid and gid not in seen:
             seen.add(gid)
             out.append(gid)
+    # Pipeline G2G-S01 shares the SAME session daemon (one Zalo session per
+    # account), so its source groups must be part of the ONE global watch
+    # allowlist or the daemon would never emit them. Union them in; the S01
+    # controller then matches messages against its own s01_rules. Lazy import +
+    # guarded so a missing/partial S01 layer can never break the G2G path.
+    try:
+        if role_allows_s01():
+            import pgs01_db  # local import: core -> pgs01_db (no cycle, pgs01_db->db only)
+            for r in pgs01_db.list_rules():
+                if r.get("account_id") != account_id or not r.get("enabled"):
+                    continue
+                gid = str(r.get("src_group_id") or "").strip()
+                if gid and gid not in seen:
+                    seen.add(gid)
+                    out.append(gid)
+    except Exception:
+        pass
     return out
 
 

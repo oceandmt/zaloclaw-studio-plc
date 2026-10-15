@@ -71,6 +71,7 @@ pre{background:#0b0d11;border:1px solid var(--line);border-radius:8px;padding:10
     {% endif %}
     {% if role != 'campaign' %}
     <button class="tab" data-tab="autobot" hx-get="/ui/tab/autobot" hx-target="#tab-content" hx-swap="innerHTML" hx-on::after-request="setTab('autobot')">🔀 Pipeline G2G</button>
+    <button class="tab" data-tab="pgs01" hx-get="/ui/tab/pgs01" hx-target="#tab-content" hx-swap="innerHTML" hx-on::after-request="setTab('pgs01')">📈 Pipeline G2G-S01</button>
     {% endif %}
     <button class="tab" data-tab="logs" hx-get="/ui/tab/logs" hx-target="#tab-content" hx-swap="innerHTML" hx-on::after-request="setTab('logs')">Log</button>
     {% if role != 'g2g' %}
@@ -363,6 +364,49 @@ document.addEventListener('input', function(e){
 function abDelete(rid, name){
   if(!confirm('Xoá luồng “'+(name||rid)+'”?\nLog của luồng này cũng bị xoá.')) return;
   htmx.ajax('POST','/autobot/'+rid+'/delete',{target:'body',swap:'none'}).then(function(){ abRefresh(); });
+}
+// ------------------------------------------------------------- pgs01 S01 tab
+function pgsAfter(ev){
+  var r=jparse(ev.detail.xhr);
+  toast(r.ok?('Đã tạo luồng S01'+(r.note||'')):('Lỗi: '+(r.error||'')), r.ok?'ok':'err');
+  if(r.ok){ var f=document.getElementById('pgs01-form'); if(f) f.reset(); }
+  pgsRefresh();
+}
+function pgsRefresh(force){
+  if(!force && pgsBusy()) return;
+  htmx.ajax('GET','/ui/pgs01',{target:'#pgs01-rules-box',swap:'outerHTML'});
+}
+function pgsBusy(){
+  var rows=document.querySelectorAll('.pgs01-edit-row');
+  for(var i=0;i<rows.length;i++){ if(rows[i].offsetParent!==null) return true; }
+  var a=document.activeElement;
+  return !!(a && a.closest && a.closest('#pgs01-rules-box') &&
+            (a.tagName==='INPUT'||a.tagName==='SELECT'||a.tagName==='TEXTAREA'));
+}
+document.addEventListener('htmx:beforeRequest', function(e){
+  if(e.detail && e.detail.elt && e.detail.elt.id==='pgs01-rules-box' && pgsBusy()) e.preventDefault();
+});
+function pgsEdit(rid){
+  var el=document.getElementById('pgs01-edit-'+rid);
+  if(!el) return;
+  var opening = (el.style.display==='none' || !el.style.display);
+  document.querySelectorAll('.pgs01-edit-row').forEach(function(r){ r.style.display='none'; });
+  if(opening){
+    el.style.display='';
+    var f=el.querySelector('input:not([type=hidden])'); if(f) f.focus();
+  }
+}
+function pgsSaved(ev, rid){
+  var j=jparse(ev.detail.xhr);
+  toast(j.ok?'Đã lưu luồng S01':('Lỗi: '+(j.error||'')), j.ok?'ok':'err');
+  if(j.ok){
+    var el=document.getElementById('pgs01-edit-'+rid); if(el) el.style.display='none';
+    pgsRefresh(true);
+  }
+}
+function pgsDelete(rid, name){
+  if(!confirm('Xoá luồng S01 “'+(name||rid)+'”?\nLog của luồng này cũng bị xoá.')) return;
+  htmx.ajax('POST','/pgs01/'+rid+'/delete',{target:'body',swap:'none'}).then(function(){ pgsRefresh(); });
 }
 </script>
 <main>

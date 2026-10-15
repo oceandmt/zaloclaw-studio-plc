@@ -37,6 +37,9 @@ RULES = [
     {"id": "f6", "account_id": "nick1", "enabled": 1, "src_group_id": ""},     # empty
 ]
 core.db = types.SimpleNamespace(list_forward_rules=lambda: RULES)
+# This is a pure G2G test: pin the role so the additive S01 watch-union in
+# _bot_watch_groups() stays out of the picture (S01 is covered by test_pgs01.py).
+core.ROLE = "campaign"
 
 # 1) allowlist = enabled unique src groups, per account
 check("watch_groups nick1 == G_A,G_B (dedup, only enabled)",

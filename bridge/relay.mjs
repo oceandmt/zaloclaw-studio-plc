@@ -307,7 +307,10 @@ export async function sendBlocks(api, blocks, thread, type, account, onError, qu
     if (bt === "text") {
       const t = String(b.content ?? "");
       if (!t) continue;
-      const r = await api.sendMessage(withQuote({ msg: t }), thread, ttype);
+      // Optional mentions (e.g. @All = {pos:0,uid:"-1",len:4,type:1}). zca-js
+      // only honours them for group sends and encodes type from uid == "-1".
+      const men = Array.isArray(b.mentions) && b.mentions.length ? b.mentions : null;
+      const r = await api.sendMessage(withQuote(men ? { msg: t, mentions: men } : { msg: t }), thread, ttype);
       consume();
       const m = r?.message?.msgId ?? r?.msgId ?? "";
       if (m) ids.push(String(m));
@@ -407,6 +410,14 @@ export function msgToEvent(message, account) {
     fromD: d.quote.fromD ?? null,
     ttl: d.quote.ttl ?? null,
   } : null;
+  // Mentions (group only): carried through so a downstream pipeline can tell an
+  // @All (uid "-1" / type 1) from an @<name> (type 0) and re-render/zap the
+  // original token. Previously dropped here, which made @All indistinguishable.
+  const mentions = Array.isArray(d.mentions)
+    ? d.mentions
+        .filter((m) => m && m.uid !== undefined && Number(m.pos) >= 0 && Number(m.len) > 0)
+        .map((m) => ({ uid: String(m.uid), pos: Number(m.pos), len: Number(m.len), type: Number(m.type) || 0 }))
+    : [];
   return {
     isGroup, gid,
     event: {
@@ -427,6 +438,7 @@ export function msgToEvent(message, account) {
       mediaKind,
       media,
       quote,
+      mentions,
       text: String(text ?? ""),
     },
   };

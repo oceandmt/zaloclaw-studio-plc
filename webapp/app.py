@@ -30,8 +30,11 @@ sys.path.insert(0, str(HERE))
 
 import core  # noqa: E402
 import db  # noqa: E402
+import pgs01  # noqa: E402
+import pgs01_db  # noqa: E402
 
 db.init()
+pgs01_db.init()
 
 # Diagnostic: `kill -USR1 <pid>` dumps every thread's Python stack into the log
 # file (SIGUSR1 -> py-spy-free introspection of a wedged worker thread).
@@ -56,6 +59,17 @@ def _autobot_boot() -> None:
         core.start_health_monitor()
     except Exception as e:  # never block startup
         core.log(f"AUTOBOT health-monitor boot error :: {e!r}")
+    # Pipeline G2G-S01 (shares the G2G session daemon; additive, role-gated).
+    try:
+        res = pgs01.ensure_bots()
+        if res.get("started"):
+            core.log(f"S01 boot :: started {res['started']}")
+    except Exception as e:  # never block startup
+        core.log(f"S01 boot error :: {e!r}")
+    try:
+        pgs01.start_health_monitor()
+    except Exception as e:  # never block startup
+        core.log(f"S01 health-monitor boot error :: {e!r}")
 
 
 @app.middleware("http")
@@ -354,7 +368,7 @@ def index(request: Request):
 
 @app.get("/ui/tab/{name}", response_class=HTMLResponse)
 def ui_tab(request: Request, name: str):
-    allowed = {"accounts", "contacts", "groups", "campaigns", "autobot", "logs", "scans", "settings"}
+    allowed = {"accounts", "contacts", "groups", "campaigns", "autobot", "logs", "scans", "settings", "pgs01"}
     if name not in allowed:
         name = "accounts"
     return templates.TemplateResponse(request, f"_tab_{name}.html", _ctx(request))
@@ -1424,3 +1438,199 @@ def autobot_bot_watch(account_id: str = Form("")):
 @app.get("/healthz")
 def healthz():
     return {"ok": True, "killswitch": core.killswitch_active(), "queue": core.queue_depth()}
+
+
+# ------------------------------------------------------------- pipeline S01
+
+@app.get("/ui/pgs01", response_class=HTMLResponse)
+def ui_pgs01(request: Request):
+    return templates.TemplateResponse(request, "_pgs01_rules.html", {
+        "request": request,
+        "rules": pgs01_db.list_rules(),
+        "bots": {b["account_id"]: b for b in pgs01.bot_status()},
+        "accounts": db.list_accounts(),
+        "groups": db.list_groups(limit=5000),
+        "kill": core.killswitch_active(),
+    })
+
+
+@app.get("/ui/pgs01/log", response_class=HTMLResponse)
+def ui_pgs01_log(request: Request, rule_id: str = ""):
+    return templates.TemplateResponse(request, "_pgs01_log.html", {
+        "request": request,
+        "log": pgs01_db.list_log(200, rule_id or None),
+        "rule_id": rule_id,
+    })
+
+
+@app.get("/ui/pgs01/status")
+def ui_pgs01_status():
+    return JSONResponse({"ok": True, **pgs01.snapshot()})
+
+
+@app.post("/pgs01/new")
+def pgs01_new(name: str = Form(""), account_id: str = Form(""),
+              src_group_id: str = Form(""), dst_group_id: str = Form(""),
+              prefix: str = Form(""), max_per_hour: str = Form("60"),
+              gap_seconds: str = Form("5"), group_window_ms: str = Form("2000"),
+              reply_mode: str = Form("quote"), reply_quote_ms: str = Form("0"),
+              fw_replies: str = Form("1"), fw_all: str = Form("1"), fw_name: str = Form("0"),
+              dry_run: str = Form("on"), include_self: str = Form("0"), enabled: str = Form("1")):
+    acc = account_id.strip()
+    src = src_group_id.strip()
+    dst = dst_group_id.strip()
+    if not acc:
+        return JSONResponse({"ok": False, "error": "Chọn tài khoản Zalo"}, status_code=400)
+    if not src or not dst:
+        return JSONResponse({"ok": False, "error": "Chọn nhóm nguồn (A) và nhóm đích (B)"}, status_code=400)
+    if src == dst:
+        return JSONResponse({"ok": False, "error": "Nhóm A và B phải khác nhau"}, status_code=400)
+    rid = "s01_" + uuid.uuid4().hex[:8]
+    pgs01_db.create_rule(
+        rid, name=name.strip() or "Luồng S01", account_id=acc,
+        src_group_id=src, src_group_name=_group_name(src),
+        dst_group_id=dst, dst_group_name=_group_name(dst),
+        prefix=prefix, enabled=1 if _last_bool(enabled, True) else 0,
+        dry_run=1 if _is_dry(dry_run) else 0,
+        include_self=1 if _last_bool(include_self, False) else 0,
+        max_per_hour=max(1, min(int(max_per_hour or 60), 100000)),
+        gap_seconds=max(0, min(int(gap_seconds or 5), 86400)),
+        group_window_ms=max(0, min(int(group_window_ms or 2000), 60000)),
+        reply_mode=_reply_mode(reply_mode),
+        reply_quote_ms=1 if _last_bool(reply_quote_ms, False) else 0,
+        fw_replies=1 if _last_bool(fw_replies, True) else 0,
+        fw_all=1 if _last_bool(fw_all, True) else 0,
+        fw_name=1 if _last_bool(fw_name, False) else 0)
+    db.log_event("s01_rule_new", f"{rid} {src}->{dst}", account_id=acc)
+    auto = ""
+    if _last_bool(enabled, True):
+        r = pgs01.start_bot(acc)
+        core._bot_apply_watch(acc)
+        auto = " · bot đang nghe" if r.get("ok") else f" · bot lỗi: {r.get('error')}"
+    return JSONResponse({"ok": True, "rule_id": rid, "note": auto})
+
+
+@app.post("/pgs01/{rid}/update")
+def pgs01_update(rid: str, name: str = Form(""), src_group_id: str = Form(""),
+                 dst_group_id: str = Form(""), prefix: str = Form(""),
+                 max_per_hour: str = Form("60"), gap_seconds: str = Form("5"),
+                 group_window_ms: str = Form("2000"), reply_mode: str = Form("quote"),
+                 reply_quote_ms: str = Form("0"), fw_replies: str = Form("1"),
+                 fw_all: str = Form("1"), fw_name: str = Form("0"),
+                 dry_run: str = Form("on"), include_self: str = Form("0"),
+                 enabled: str = Form("1")):
+    rule = pgs01_db.get_rule(rid)
+    if not rule:
+        return JSONResponse({"ok": False, "error": "không tìm thấy luồng"}, status_code=404)
+    src = src_group_id.strip() or rule["src_group_id"]
+    dst = dst_group_id.strip() or rule["dst_group_id"]
+    if src == dst:
+        return JSONResponse({"ok": False, "error": "Nhóm A và B phải khác nhau"}, status_code=400)
+    pgs01_db.update_rule(
+        rid, name=name.strip() or rule["name"],
+        src_group_id=src, src_group_name=_group_name(src),
+        dst_group_id=dst, dst_group_name=_group_name(dst),
+        prefix=prefix, enabled=1 if _last_bool(enabled, True) else 0,
+        dry_run=1 if _is_dry(dry_run) else 0,
+        include_self=1 if _last_bool(include_self, False) else 0,
+        max_per_hour=max(1, min(int(max_per_hour or 60), 100000)),
+        gap_seconds=max(0, min(int(gap_seconds or 5), 86400)),
+        group_window_ms=max(0, min(int(group_window_ms or 2000), 60000)),
+        reply_mode=_reply_mode(reply_mode),
+        reply_quote_ms=1 if _last_bool(reply_quote_ms, False) else 0,
+        fw_replies=1 if _last_bool(fw_replies, True) else 0,
+        fw_all=1 if _last_bool(fw_all, True) else 0,
+        fw_name=1 if _last_bool(fw_name, False) else 0)
+    db.log_event("s01_rule_update", rid, account_id=rule["account_id"])
+    if _last_bool(enabled, True):
+        pgs01.start_bot(rule["account_id"])
+    core._bot_apply_watch(rule["account_id"])
+    return JSONResponse({"ok": True})
+
+
+@app.post("/pgs01/{rid}/delete")
+def pgs01_delete(rid: str):
+    rule = pgs01_db.get_rule(rid)
+    pgs01_db.delete_rule(rid)
+    db.log_event("s01_rule_delete", rid)
+    if rule:
+        remain = [r for r in pgs01_db.list_rules()
+                  if r.get("account_id") == rule["account_id"] and r.get("enabled")]
+        if not remain:
+            pgs01.stop_bot(rule["account_id"])
+        core._bot_apply_watch(rule["account_id"])
+    return JSONResponse({"ok": True})
+
+
+@app.post("/pgs01/{rid}/toggle")
+def pgs01_toggle(rid: str, enabled: str = Form("1")):
+    rule = pgs01_db.get_rule(rid)
+    if not rule:
+        return JSONResponse({"ok": False, "error": "không tìm thấy luồng"}, status_code=404)
+    on = enabled == "1"
+    pgs01_db.update_rule(rid, enabled=1 if on else 0)
+    if on:
+        pgs01.start_bot(rule["account_id"])
+    db.log_event("s01_rule_toggle", f"{rid}={'on' if on else 'off'}")
+    core._bot_apply_watch(rule["account_id"])
+    return JSONResponse({"ok": True, "enabled": on})
+
+
+@app.post("/pgs01/bot/start")
+def pgs01_bot_start(account_id: str = Form("")):
+    return JSONResponse(pgs01.start_bot(account_id.strip()))
+
+
+@app.post("/pgs01/bot/stop")
+def pgs01_bot_stop(account_id: str = Form("")):
+    return JSONResponse(pgs01.stop_bot(account_id.strip()))
+
+
+@app.post("/pgs01/bot/restart")
+def pgs01_bot_restart(account_id: str = Form("")):
+    return JSONResponse(pgs01.restart_bot(account_id.strip()))
+
+
+@app.post("/pgs01/bot/watch")
+def pgs01_bot_watch(account_id: str = Form("")):
+    """Re-push the shared watch allowlist (union of G2G + S01 source groups)."""
+    acc = account_id.strip()
+    res = core._bot_apply_watch(acc)
+    groups = core._bot_watch_groups(acc)
+    return JSONResponse({"ok": bool(res.get("ok", True)), "account": acc,
+                         "groups": groups, "detail": res})
+
+
+@app.post("/pgs01/bot/send")
+def pgs01_bot_send(account_id: str = Form("nick1"), thread: str = Form(""),
+                   parts_json: str = Form("[]"), prefix: str = Form(""),
+                   reply_prefix: str = Form(""), quote_json: str = Form(""),
+                   blocks_json: str = Form(""), dry: str = Form("1")):
+    """Internal: relay a canonical post through the S01 engine so the bridge's
+    real normalize/coalesce/send path can be verified live (mirrors
+    /autobot/bot/send). DRY-RUN by default; pass dry=0 to actually send.
+    reply_prefix adds a '↩ …' context line; quote_json attaches a native quote;
+    blocks_json (optional) sends explicit blocks (e.g. an @All block)."""
+    try:
+        parts = json.loads(parts_json or "[]")
+        blocks = json.loads(blocks_json) if blocks_json.strip() else None
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"bad json: {e}"}, status_code=400)
+    quote = None
+    if quote_json.strip():
+        try:
+            quote = json.loads(quote_json)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": f"bad quote_json: {e}"}, status_code=400)
+    if not thread:
+        return JSONResponse({"ok": False, "error": "thread required"}, status_code=400)
+    cmd = {"cmd": "send", "thread": thread, "type": "group",
+           "dryRun": str(dry).strip() not in ("0", "off", "false"),
+           "prefix": prefix, "reply_prefix": reply_prefix}
+    if blocks is not None:
+        cmd["blocks"] = blocks
+    else:
+        cmd["parts"] = parts
+    if quote:
+        cmd["quote"] = quote
+    return JSONResponse(core._bot_cmd(account_id, cmd, timeout=60))
