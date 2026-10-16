@@ -134,6 +134,16 @@ def _media_url(p: str) -> str:
 templates.env.filters["media_url"] = _media_url
 
 
+def _avatar_url(u: str) -> str:
+    """Remote avatar URL (Zalo CDN). Only http(s) is allowed so a stored value
+    can never inject a javascript:/data: URL into an <img src>."""
+    s = str(u or "").strip()
+    return s if s.startswith("http://") or s.startswith("https://") else ""
+
+
+templates.env.filters["avatar_url"] = _avatar_url
+
+
 def _parse_tags(raw) -> list[str]:
     """Accept comma/semicolon-separated tags, a repeated form field (list), or
     ';'-joined values; trim, drop blanks, de-dupe preserving order."""

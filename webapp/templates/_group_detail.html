@@ -41,13 +41,19 @@
 </div>
 
 <table>
-  <tr><th>Tên</th><th>Zalo ID</th><th>Vai trò</th></tr>
+  <tr><th></th><th>Tên</th><th>Giới tính</th><th>Zalo ID</th><th>Vai trò</th><th>Lần đầu / Gần nhất</th><th>Nguồn</th></tr>
   {% for m in members %}
   <tr>
-    <td>{{ m.display_name or '—' }}</td>
+    <td>{% if m.avatar %}<img src="{{ m.avatar|avatar_url }}" alt="" style="width:28px;height:28px;border-radius:50%;object-fit:cover"
+             onerror="this.style.visibility='hidden'">{% else %}<span class="mut">👤</span>{% endif %}</td>
+    <td>{{ m.display_name or '—' }}{% if m.zalo_name and m.zalo_name != m.display_name %}<div class="mut" style="font-size:11px">{{ m.zalo_name }}</div>{% endif %}</td>
+    <td>{% if m.gender %}<span class="pill">{{ m.gender }}</span>{% else %}<span class="mut">—</span>{% endif %}</td>
     <td><code style="font-size:11px">{{ m.user_id }}</code></td>
-    <td>{% if m.is_admin %}<span class="pill sent">admin</span>{% else %}<span class="mut">thành viên</span>{% endif %}</td>
+    <td>{% if m.is_admin %}<span class="pill sent">admin</span>{% else %}<span class="mut">thành viên</span>{% endif %}
+        {% if m.account_status is not none and m.account_status != 0 %}<span class="pill failed" title="trạng thái tài khoản">⚠ {{ m.account_status }}</span>{% endif %}</td>
+    <td class="mut" style="font-size:11px">{{ m.first_seen|datetime_hm }}<br>{{ m.last_seen|datetime_hm }}</td>
+    <td>{% if m.source == 'observed' %}<span class="pill pending" title="thu thập thụ động từ tin nhắn">quan sát</span>{% else %}<span class="mut">quét</span>{% endif %}</td>
   </tr>
   {% endfor %}
-  {% if not members %}<tr><td colspan="3" class="mut">Chưa quét được thành viên. Bấm "Quét thành viên" ở danh sách nhóm.</td></tr>{% endif %}
+  {% if not members %}<tr><td colspan="7" class="mut">Chưa quét được thành viên. Bấm "Quét thành viên" ở danh sách nhóm.</td></tr>{% endif %}
 </table>

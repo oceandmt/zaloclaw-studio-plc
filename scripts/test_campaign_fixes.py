@@ -13,7 +13,9 @@ Fully offline: bridge send is monkeypatched, DRY-RUN on, NO Zalo traffic.
 Run:  webapp/.venv/bin/python scripts/test_campaign_fixes.py
 """
 import queue
+import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -21,6 +23,13 @@ HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE / "webapp"))
 import core  # noqa: E402
 import db  # noqa: E402
+
+# --- ISOLATION: point db at a throw-away sqlite file BEFORE any db call ------
+_LIVE_DB = db.DB_PATH
+_TMP = Path(tempfile.mkdtemp(prefix="zs-campaignfix-test-"))
+db.DATA = _TMP
+db.DB_PATH = _TMP / "test.db"
+assert db.DB_PATH != _LIVE_DB, "refusing to run against the live DB"
 
 db.init()
 calls: list[dict] = []
@@ -154,6 +163,8 @@ check("F6b: no target stranded - both get sent",
 for cid in ("c_f23", "c_f1", "c_f5", "c_f5b", "c_f4a", "c_f4b", "c_f6", "c_park"):
     db.delete_campaign(cid)
 core._JOBS.queue.clear(); core._queued_targets.clear(); core._busy.clear(); core._next_attempt.clear()
+
+shutil.rmtree(_TMP, ignore_errors=True)
 
 print(f"\n{'ALL PASS' if fails == 0 else str(fails) + ' FAILED'}")
 sys.exit(1 if fails else 0)

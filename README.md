@@ -297,6 +297,17 @@ node bridge/zalo.mjs group-members --account nick1 --group <groupId> --creds-dir
 - **Test chống tái phát**: `scripts/test_send_no_deadlock.py` (dùng **DB tạm cô lập** — tuyệt đối không đụng `data/zs.db`) — chạy `_process_job` trong thread, phải trả về trong 10s.
 - **Chẩn đoán về sau**: `kill -USR1 <pid panel>` → dump stack mọi thread ra `logs/panel-systemd.err` (đã bật `faulthandler` trong `app.py`).
 
+### 🔄 Nâng cấp quét thành viên nhóm — merge + cache + hiển thị hồ sơ (16/10)
+- **Gốc lỗi**: `db.upsert_members` cũ **xoá sạch rồi ghi lại** (`DELETE FROM members WHERE group_id=?`). Bridge bỏ qua **im lặng** chunk lỗi (`catch { skip }`) ⇒ một lần quét **một phần** **xoá vĩnh viễn** thành viên không lấy được. Bảng `members` cũng **vứt** `avatar/gender/zaloName/accountStatus` mà bridge đã có, và **không có** lịch sử `first_seen/last_seen`.
+- **Khắc phục (additive)**:
+  1. `members` thêm cột `avatar, gender, zalo_name, account_status, first_seen, last_seen, source` + migration `ALTER TABLE` idempotent + backfill `first_seen/last_seen = scanned_at` cho dữ liệu cũ.
+  2. `upsert_members` đổi sang **merge** `INSERT ... ON CONFLICT(group_id,user_id) DO UPDATE`: giữ `first_seen`, cập nhật `last_seen`; giá trị rỗng **không ghi đè** giá trị đã biết; `source` nâng `observed`→`roster` (không hạ cấp).
+  3. **Cache `getGroupInfo`** trong `bridge/zalo.mjs` — TTL/LRU qua settings **`group_info_cache_ms`** (mặc định **300000** = 5 phút) / **`group_info_cache_max`** (mặc định 50); **`0` = tắt = hành vi cũ**. Bounded LRU nên không phình vô hạn.
+  4. UI **chi tiết nhóm**: avatar · giới tính · `first_seen/last_seen` · nhãn nguồn (`quét` vs `quan sát`). Avatar chỉ nhận `http(s)` (chống chèn `javascript:`/`data:`).
+- **Test**: `scripts/test_member_scan_upgrade.py` (29 case — merge giữ dữ liệu, blank-không-đè, source upgrade, migration idempotent, DB cô lập) + `scripts/test_groupinfo_cache.mjs` (10 case — 0=tắt=cũ, TTL, LRU, nhóm khác nhau). Hồi quy **14 py + 4 mjs** ALL PASS.
+- **Vá kèm — cô lập DB cho test (an toàn dữ liệu LIVE)**: 5 suite (`test_db_no_fd_leak`, `test_autobot`, `test_campaign_fixes`, `test_g2g_dedup`, `test_blocks`) trước đây gọi `db.init()`/ghi thẳng vào **`data/zs.db` live** — `test_db_no_fd_leak.py` còn **âm thầm migrate** DB live, `test_campaign_fixes` **ghi campaign/target thật**, `test_blocks` **tạo file probe trong `data/media/`**. Nay tất cả trỏ `db.DATA`/`db.DB_PATH` (và `core.KILLSWITCH`, file probe) sang **thư mục tạm** + assert `DB_PATH != live` + dọn temp. Bằng chứng: chạy cả suite ⇒ **`data/zs.db` md5 bất biến, mtime `data/media` bất biến**; **18 py+mjs ALL PASS**.
+- **Verify live**: restart `zaloclaw-g2g`+panel, quét thật nhóm `Digital Era - Pre` **3 lần** ⇒ 3 member giữ nguyên, `first_seen` bất biến, `last_seen` tiến, avatar/zalo_name nạp; UI render 200.
+
 ### ⏰ Giờ im lặng — không gửi tin / kết bạn (03/10)
 - Tab **Cài đặt** → mục **Giờ im lặng**: bật + chọn **Từ** / **Đến** (input `time`, giờ local). Trong khung giờ này engine **KHÔNG gửi tin nhắn và KHÔNG gửi lời mời kết bạn** — job được **park** (không ngủ, không đốt hạn mức) và **tự chạy tiếp** khi hết giờ.
 - Khung giờ **qua nửa đêm** OK (VD `22:00 → 06:00`). `from == to` ⇒ coi như **tắt** (không bao giờ im lặng 24/7). Đầu/cuối khung là **exclusive**.

@@ -48,6 +48,10 @@
         <input name="group_scan_jitter_seconds" type="number" min="0" value="{{ defaults.group_scan_jitter_seconds or 20 }}"></div>
       <div><label>Đồng bộ danh sách nhóm — nghỉ (giây)</label>
         <input name="group_sync_gap_seconds" type="number" min="1" value="{{ defaults.group_sync_gap_seconds or 600 }}"></div>
+      <div><label title="Tái dùng kết quả getGroupInfo trong N ms khi quét nhóm. 0 = tắt (không cache)">Cache danh sách nhóm — TTL (ms, 0=tắt)</label>
+        <input name="group_info_cache_ms" type="number" min="0" value="{{ defaults.group_info_cache_ms if defaults.group_info_cache_ms is not none else 0 }}"></div>
+      <div><label title="Số nhóm tối đa giữ trong cache (LRU)">Cache — số nhóm tối đa</label>
+        <input name="group_info_cache_max" type="number" min="0" value="{{ defaults.group_info_cache_max or 50 }}"></div>
     </div>
 
     <div style="margin-top:14px"><button type="submit">💾 Lưu cài đặt</button>

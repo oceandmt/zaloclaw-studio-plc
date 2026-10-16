@@ -12,7 +12,9 @@ Covers:
 Run:  webapp/.venv/bin/python scripts/test_g2g_dedup.py
 """
 import queue
+import shutil
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -21,6 +23,13 @@ HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE / "webapp"))
 import core  # noqa: E402
 import db  # noqa: E402
+
+# --- ISOLATION: point db at a throw-away sqlite file BEFORE any db call ------
+_LIVE_DB = db.DB_PATH
+_TMP = Path(tempfile.mkdtemp(prefix="zs-g2gdedup-test-"))
+db.DATA = _TMP
+db.DB_PATH = _TMP / "test.db"
+assert db.DB_PATH != _LIVE_DB, "refusing to run against the live DB"
 
 db.init()
 RID = "f_g2gd"
@@ -137,6 +146,8 @@ db.delete_forward_rule(RID)
 with db._LOCK, db._conn() as c:
     c.execute("DELETE FROM forward_seen WHERE account_id=?", ("nick1",))
     c.execute("DELETE FROM forward_log WHERE rule_id=?", (RID,))
+
+shutil.rmtree(_TMP, ignore_errors=True)
 
 print(f"\n{'ALL PASS' if fails == 0 else str(fails) + ' FAILED'}")
 sys.exit(1 if fails else 0)

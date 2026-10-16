@@ -19,6 +19,8 @@
     "group_scan_per_hour": 20,
     "group_scan_per_day": 60,
     "group_sync_gap_seconds": 600,
+    "group_info_cache_ms": 300000,
+    "group_info_cache_max": 50,
     "dedupe_sent_days": 3
   },
   "safety": {

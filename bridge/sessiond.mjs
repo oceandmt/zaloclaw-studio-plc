@@ -233,7 +233,9 @@ async function handle(req) {
       // Stream progress as events tagged with this request id, then reply with
       // the final member list. The client filters events by req_id.
       const onProgress = req.stream ? (p) => broadcast({ event: "scan", req_id: id, ...p }) : null;
-      const r = await doGroupMembers(API, req.groupId ?? req.group, onProgress);
+      // Optional getGroupInfo reuse window (additive; 0/absent = no cache).
+      const r = await doGroupMembers(API, req.groupId ?? req.group, onProgress,
+                                     { cacheMs: req.cacheMs, cacheMax: req.cacheMax });
       return { id, ok: true, ...r };
     }
     case "set-watch": { const s = applyWatchArg(req.mode === "only" ? "only:" + (req.groups || []).join(",") : "all"); return { id, ok: true, watch: s }; }

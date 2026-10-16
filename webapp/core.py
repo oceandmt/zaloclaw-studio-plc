@@ -99,6 +99,7 @@ _RATE_KEYS = {
     "group_scan_per_hour": int, "group_scan_per_day": int,
     "group_scan_gap_seconds": int, "group_scan_jitter_seconds": int,
     "group_sync_gap_seconds": int, "dedupe_sent_days": int,
+    "group_info_cache_ms": int, "group_info_cache_max": int,
 }
 
 # (min, max) clamps so a fat-fingered 0/negative/1e9 can't silently disable the
@@ -111,6 +112,7 @@ _RATE_CLAMPS = {
     "group_scan_per_hour": (1, 100000), "group_scan_per_day": (1, 1000000),
     "group_scan_gap_seconds": (0, 86400), "group_scan_jitter_seconds": (0, 86400),
     "group_sync_gap_seconds": (0, 86400), "dedupe_sent_days": (0, 365),
+    "group_info_cache_ms": (0, 3600000), "group_info_cache_max": (0, 10000),
 }
 
 
@@ -1526,6 +1528,24 @@ _scans_running: set[str] = set()
 _scans_lock = threading.Lock()
 
 
+def _group_info_cache_ms() -> int:
+    """getGroupInfo reuse window in ms for scans. 0 = disabled (old behaviour)."""
+    d = settings().get("defaults", {})
+    try:
+        return max(0, int(d.get("group_info_cache_ms", 0) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _group_info_cache_max() -> int:
+    """LRU entry cap for the getGroupInfo cache (bridge default when 0)."""
+    d = settings().get("defaults", {})
+    try:
+        return max(0, int(d.get("group_info_cache_max", 0) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 def scan_group_members(account_id: str, group_id: str) -> dict:
     """Start a non-blocking group-member scan in a background thread.
     Progress + result land in db.group_scan_progress; UI polls it."""
@@ -1576,7 +1596,8 @@ def _scan_worker(account_id: str, group_id: str, gname: str) -> None:
                 on_event({**ev, "event": phase})
         final = sessiond_client.stream(
             account_id,
-            {"cmd": "group-members", "groupId": group_id, "stream": True},
+            {"cmd": "group-members", "groupId": group_id, "stream": True,
+             "cacheMs": _group_info_cache_ms(), "cacheMax": _group_info_cache_max()},
             _on_scan, timeout=900)
         if not final.get("ok") or final.get("event") == "error":
             msg = str(final.get("error"))[:300]

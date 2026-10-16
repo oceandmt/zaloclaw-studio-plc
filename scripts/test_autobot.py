@@ -8,8 +8,10 @@ prefixing, rate cap and the "no auto-reply" safety default.
 Run:  webapp/.venv/bin/python scripts/test_autobot.py
 """
 import queue
+import shutil
 import sqlite3
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -19,13 +21,20 @@ sys.path.insert(0, str(HERE / "webapp"))
 import core  # noqa: E402
 import db  # noqa: E402
 
+# --- ISOLATION: point db at a throw-away sqlite file BEFORE any db call ------
+_LIVE_DB = db.DB_PATH
+_TMP = Path(tempfile.mkdtemp(prefix="zs-autobot-test-"))
+db.DATA = _TMP
+db.DB_PATH = _TMP / "test.db"
+assert db.DB_PATH != _LIVE_DB, "refusing to run against the live DB"
+
 db.init()
 RID = "f_utest"
 db.delete_forward_rule(RID)
 # test hygiene: drop any residue in the shared dedup ledger for our synthetic
 # groups (forward_seen has a 24h TTL, so a prior run would mask re-runs)
 try:
-    _c = sqlite3.connect(str(HERE / "data" / "zs.db"))
+    _c = sqlite3.connect(str(db.DB_PATH))
     _c.execute("delete from forward_seen where group_id in ('G_A','G_B')")
     _c.execute("delete from forward_log where rule_id like 'f_utest%'")
     _c.commit(); _c.close()
@@ -118,7 +127,7 @@ check("over hourly cap -> skipped (not sent)", len(calls) == 1
       and any("hạn/giờ" in (l["status"] or "") for l in db.list_forward_log(20, RID)))
 
 # 8) KILLSWITCH stop
-core.KILLSWITCH = HERE / "data" / "KILLSWITCH"
+core.KILLSWITCH = _TMP / "KILLSWITCH"
 core.set_killswitch(True)
 core._bot_handle_message("nick1", {**EV, "msgId": "m7", "text": "killed"})
 time.sleep(0.5)
@@ -130,6 +139,8 @@ check("killswitch blocks the send", len(calls) == 1
 bot["out"].put(None)
 core._bots.pop("nick1", None)
 db.delete_forward_rule(RID)
+
+shutil.rmtree(_TMP, ignore_errors=True)
 
 print(f"\n{'ALL PASS' if fails == 0 else str(fails) + ' FAILED'}")
 sys.exit(1 if fails else 0)

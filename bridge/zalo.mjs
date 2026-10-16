@@ -414,8 +414,63 @@ async function doLeaveGroup(api, groupId, silent = false) {
   return { ok: true, groupId: String(groupId), memberError: r?.memberError ?? null };
 }
 
-async function doGroupMembers(api, groupId, onProgress) {
+// --------------------------------------------------------- group-info cache
+// getGroupInfo is the (relatively heavy) call that lists a group's member ids.
+// Within a short window the roster rarely changes, so a repeat scan of the same
+// group can reuse the last result. This is OPT-IN and additive: callers pass
+// {cacheMs, cacheMax}; cacheMs<=0 (the default) means NO caching = the exact
+// old behaviour. The cache is per-daemon-process (one daemon == one account) and
+// bounded by an LRU cap so it can never grow without limit.
+const _DEFAULT_GROUPINFO_MAX = 50;
+const _groupInfoCache = new Map(); // groupId -> { at, value }
+
+function groupInfoCacheClear() {
+  _groupInfoCache.clear();
+}
+
+function groupInfoCacheSize() {
+  return _groupInfoCache.size;
+}
+
+function _cacheGet(key, ttlMs, now) {
+  const e = _groupInfoCache.get(key);
+  if (!e) return undefined;
+  if (ttlMs <= 0 || now - e.at > ttlMs) {
+    _groupInfoCache.delete(key);
+    return undefined;
+  }
+  // LRU touch: re-insert so the most recently used key sits at the tail.
+  _groupInfoCache.delete(key);
+  _groupInfoCache.set(key, e);
+  return e.value;
+}
+
+function _cacheSet(key, value, max, now) {
+  if (max <= 0) return;
+  _groupInfoCache.delete(key);
+  _groupInfoCache.set(key, { at: now, value });
+  while (_groupInfoCache.size > max) {
+    const oldest = _groupInfoCache.keys().next().value;
+    _groupInfoCache.delete(oldest);
+  }
+}
+
+async function getGroupInfoCached(api, groupId, opts = {}) {
+  const ttlMs = Math.max(0, Number(opts.cacheMs) || 0);
+  const max = Number(opts.cacheMax);
+  const maxEntries = Number.isFinite(max) && max > 0 ? Math.floor(max) : _DEFAULT_GROUPINFO_MAX;
+  const key = String(groupId);
+  if (ttlMs > 0) {
+    const hit = _cacheGet(key, ttlMs, Date.now());
+    if (hit !== undefined) return hit;
+  }
   const info = await api.getGroupInfo([groupId]);
+  if (ttlMs > 0) _cacheSet(key, info, maxEntries, Date.now());
+  return info;
+}
+
+async function doGroupMembers(api, groupId, onProgress, opts = {}) {
+  const info = await getGroupInfoCached(api, groupId, opts);
   const map = info?.gridInfoMap || {};
   const g = map[groupId] || Object.values(map)[0] || {};
   // memberIds may be empty on modern Zalo; fall back to memVerList ("uid_version")
@@ -638,7 +693,7 @@ async function cmdGroupMembersStream(args) {
 // ------------------------------------------------------------------- exports
 // Reused by sessiond.mjs (single shared session owner). Function declarations
 // above are hoisted, so this re-export block can sit here.
-export { doFindUsers, doUserInfo, doFriendRequest, doSetAlias, doGroups, doFriends, doLeaveGroup, doUnfriend, doGroupMembers, loginApi };
+export { doFindUsers, doUserInfo, doFriendRequest, doSetAlias, doGroups, doFriends, doLeaveGroup, doUnfriend, doGroupMembers, getGroupInfoCached, groupInfoCacheClear, groupInfoCacheSize, loginApi };
 
 // ---------------------------------------------------------------------- main
 

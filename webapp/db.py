@@ -169,6 +169,13 @@ CREATE TABLE IF NOT EXISTS members (
   global_id TEXT,
   is_admin INTEGER DEFAULT 0,
   scanned_at INTEGER,
+  avatar TEXT DEFAULT '',
+  gender TEXT DEFAULT '',
+  zalo_name TEXT DEFAULT '',
+  account_status INTEGER,
+  first_seen INTEGER,
+  last_seen INTEGER,
+  source TEXT DEFAULT 'roster',
   UNIQUE(group_id, user_id)
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
@@ -278,6 +285,17 @@ def init() -> None:
             # that carry a source msg id). Catches double-writes the ledger misses.
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_fwd_log"
             " ON forward_log(rule_id, src_group_id, src_msg_id) WHERE src_msg_id <> ''",
+            # member roster enrichment: store the profile fields the bridge
+            # already fetches (avatar/gender/zaloName/accountStatus) plus
+            # first_seen/last_seen/source so a merge can preserve history and a
+            # later partial scan can never wipe an existing member.
+            "ALTER TABLE members ADD COLUMN avatar TEXT DEFAULT ''",
+            "ALTER TABLE members ADD COLUMN gender TEXT DEFAULT ''",
+            "ALTER TABLE members ADD COLUMN zalo_name TEXT DEFAULT ''",
+            "ALTER TABLE members ADD COLUMN account_status INTEGER",
+            "ALTER TABLE members ADD COLUMN first_seen INTEGER",
+            "ALTER TABLE members ADD COLUMN last_seen INTEGER",
+            "ALTER TABLE members ADD COLUMN source TEXT DEFAULT 'roster'",
         ):
             try:
                 c.execute(stmt)
@@ -290,6 +308,15 @@ def init() -> None:
                                  " WHERE ident IS NULL OR ident=''").fetchall():
                 c.execute("UPDATE targets SET ident=? WHERE id=?",
                           (canon_ident(row[1], row[2]), row[0]))
+        except sqlite3.Error:
+            pass
+        # Backfill member history columns from the only timestamp older rows
+        # carry (scanned_at) so existing rosters keep a first_seen/last_seen.
+        try:
+            c.execute("UPDATE members SET first_seen=scanned_at"
+                      " WHERE first_seen IS NULL AND scanned_at IS NOT NULL")
+            c.execute("UPDATE members SET last_seen=scanned_at"
+                      " WHERE last_seen IS NULL AND scanned_at IS NOT NULL")
         except sqlite3.Error:
             pass
 
@@ -791,18 +818,50 @@ def list_groups(account_id: str | None = None, limit: int = 500) -> list[dict]:
         return [dict(r) for r in rows]
 
 
-def upsert_members(account_id: str, group_id: str, members: list[dict]) -> int:
+def upsert_members(account_id: str, group_id: str, members: list[dict],
+                   source: str = "roster") -> int:
+    """Merge a member roster into the members table (never wipes history).
+
+    Older behaviour was DELETE-all + re-INSERT, so a PARTIAL scan (chunk error,
+    member list truncated) permanently dropped every member it failed to fetch.
+    Now each member is upserted on the UNIQUE(group_id, user_id) key:
+      * ``first_seen`` is set once (insert) and PRESERVED on later scans;
+      * ``last_seen``/``scanned_at`` advance to now on every sighting;
+      * profile fields (avatar/gender/zalo_name/account_status/display_name)
+        are refreshed, but a blank value never clobbers a known one;
+      * ``source`` upgrades to 'roster' when a real scan sees the member, and is
+        otherwise kept as-is (so 'observed' rows are not blanked).
+    Returns the number of rows written.
+    """
+    now = int(time.time())
     n = 0
     with _LOCK, _conn() as c:
-        c.execute("DELETE FROM members WHERE group_id=?", (group_id,))
         for m in members:
             if not m.get("userId"):
                 continue
             c.execute(
-                "INSERT INTO members(account_id,group_id,user_id,display_name,global_id,is_admin,scanned_at)"
-                " VALUES(?,?,?,?,?,?,?)",
+                "INSERT INTO members(account_id,group_id,user_id,display_name,global_id,"
+                "is_admin,scanned_at,avatar,gender,zalo_name,account_status,first_seen,"
+                "last_seen,source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(group_id,user_id) DO UPDATE SET"
+                " account_id=excluded.account_id,"
+                " display_name=CASE WHEN excluded.display_name<>'' THEN excluded.display_name"
+                "                   ELSE members.display_name END,"
+                " global_id=CASE WHEN excluded.global_id<>'' THEN excluded.global_id"
+                "                ELSE members.global_id END,"
+                " is_admin=excluded.is_admin,"
+                " scanned_at=excluded.scanned_at,"
+                " avatar=CASE WHEN excluded.avatar<>'' THEN excluded.avatar ELSE members.avatar END,"
+                " gender=CASE WHEN excluded.gender<>'' THEN excluded.gender ELSE members.gender END,"
+                " zalo_name=CASE WHEN excluded.zalo_name<>'' THEN excluded.zalo_name"
+                "                ELSE members.zalo_name END,"
+                " account_status=COALESCE(excluded.account_status, members.account_status),"
+                " last_seen=excluded.last_seen,"
+                " source=CASE WHEN excluded.source='roster' THEN 'roster' ELSE members.source END",
                 (account_id, group_id, m["userId"], m.get("displayName", ""),
-                 m.get("globalId", ""), 1 if m.get("isAdmin") else 0, int(time.time())))
+                 m.get("globalId", ""), 1 if m.get("isAdmin") else 0, now,
+                 m.get("avatar", ""), m.get("gender", ""), m.get("zaloName", ""),
+                 m.get("accountStatus"), now, now, source))
             n += 1
     return n
 
