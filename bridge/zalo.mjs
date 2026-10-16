@@ -388,6 +388,32 @@ async function doGroups(api) {
   return out;
 }
 
+async function doFriends(api) {
+  const raw = await api.getAllFriends(20000, 1);
+  const list = Array.isArray(raw) ? raw : (raw?.data || []);
+  return list.map((u) => ({
+    userId: String(u?.userId ?? u?.uid ?? ""),
+    displayName: u?.displayName ?? u?.display_name ?? "",
+    zaloName: u?.zaloName ?? u?.zalo_name ?? "",
+    username: u?.username ?? "",
+    alias: u?.alias ?? "",
+    phoneNumber: u?.phoneNumber ?? "",
+    isFr: u?.isFr ?? null,
+  })).filter((u) => u.userId);
+}
+
+async function doUnfriend(api, userId) {
+  const fid = String(userId);
+  if (!fid) throw new Error("userId required");
+  await api.removeFriend(fid);
+  return { ok: true, userId: fid };
+}
+
+async function doLeaveGroup(api, groupId, silent = false) {
+  const r = await api.leaveGroup(String(groupId), !!silent);
+  return { ok: true, groupId: String(groupId), memberError: r?.memberError ?? null };
+}
+
 async function doGroupMembers(api, groupId, onProgress) {
   const info = await api.getGroupInfo([groupId]);
   const map = info?.gridInfoMap || {};
@@ -558,6 +584,25 @@ async function cmdGroups(args) {
   emitJson({ ok: true, groups: await doGroups(api) });
 }
 
+async function cmdUnfriend(args) {
+  if (!args.user) { emitJson({ ok: false, error: "--user is required" }); process.exit(2); }
+  if (DRY(args)) { emitJson({ ok: true, dryRun: true, userId: args.user }); return; }
+  const api = await loginApi(args);
+  emitJson({ ok: true, ...(await doUnfriend(api, args.user)) });
+}
+
+async function cmdFriends(args) {
+  const api = await loginApi(args);
+  emitJson({ ok: true, friends: await doFriends(api) });
+}
+
+async function cmdLeaveGroup(args) {
+  if (!args.group) { emitJson({ ok: false, error: "--group is required" }); process.exit(2); }
+  if (DRY(args)) { emitJson({ ok: true, dryRun: true, groupId: args.group }); return; }
+  const api = await loginApi(args);
+  emitJson({ ok: true, ...(await doLeaveGroup(api, args.group, args.silent === true || args.silent === "1")) });
+}
+
 async function cmdGroupMembers(args) {
   if (!args.group) { emitJson({ ok: false, error: "--group is required" }); process.exit(2); }
   const api = await loginApi(args);
@@ -593,7 +638,7 @@ async function cmdGroupMembersStream(args) {
 // ------------------------------------------------------------------- exports
 // Reused by sessiond.mjs (single shared session owner). Function declarations
 // above are hoisted, so this re-export block can sit here.
-export { doFindUsers, doUserInfo, doFriendRequest, doSetAlias, doGroups, doGroupMembers, loginApi };
+export { doFindUsers, doUserInfo, doFriendRequest, doSetAlias, doGroups, doFriends, doLeaveGroup, doUnfriend, doGroupMembers, loginApi };
 
 // ---------------------------------------------------------------------- main
 
@@ -611,6 +656,9 @@ async function main() {
     case "friend-request": return cmdFriendRequest(args);
     case "set-alias": return cmdSetAlias(args);
     case "groups": return cmdGroups(args);
+    case "friends": return cmdFriends(args);
+    case "unfriend": return cmdUnfriend(args);
+    case "leave-group": return cmdLeaveGroup(args);
     case "group-members": return cmdGroupMembers(args);
     case "group-members-stream": return cmdGroupMembersStream(args);
     default:

@@ -288,6 +288,45 @@ export async function downloadToTmp(url, account) {
   return out;
 }
 
+// Additive (file relay): a NON-image attachment MUST reach zca-js with its real
+// filename, because zca-js picks the upload route (image | video | others) from
+// the file EXTENSION. `downloadToTmp` normalises every non-image to `.jpg`, so a
+// `.xlsx`/`.pdf` used to be uploaded through the IMAGE path, fail the image
+// metadata probe, and then the outer catch silently degraded the file to a text
+// caption — the file never landed in the destination group. Returning an
+// AttachmentSource `{data, filename, metadata}` both routes it to the real
+// "others" file uploader AND preserves the name the recipient sees.
+const SAFE_FILE_EXT = /^[a-z0-9]{1,8}$/i;
+
+export async function fetchFileAttachment(url, account, name) {
+  const key = "file:" + String(url);
+  let buf;
+  const hit = _mediaCache.get(key);
+  if (hit && fs.existsSync(hit)) {
+    buf = await fs.promises.readFile(hit);
+  } else {
+    const r = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" }, redirect: "follow" });
+    if (!r.ok) throw new Error(`tải file lỗi HTTP ${r.status}`);
+    buf = Buffer.from(await r.arrayBuffer());
+    if (!buf.length) throw new Error("file rỗng");
+    const dir = path.join(os.tmpdir(), "zsfwd");
+    fs.mkdirSync(dir, { recursive: true });
+    const out = path.join(dir, `${account || "a"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.bin`);
+    fs.writeFileSync(out, buf);
+    _mediaCache.set(key, out);
+    if (_mediaCache.size > 200) { const [k] = _mediaCache.keys(); _mediaCache.delete(k); }
+  }
+  let base = String(name || "").trim().replace(/[\r\n\t]+/g, " ");
+  if (!base) {
+    try { base = path.basename(new URL(url).pathname); } catch { base = ""; }
+  }
+  let ext = (base.match(/\.([a-z0-9]{1,8})$/i)?.[1] || "").toLowerCase();
+  if (!SAFE_FILE_EXT.test(ext)) ext = "bin";
+  let stem = base.replace(/\.[^.]*$/, "").replace(/[\\/:*?"<>|]+/g, "_").trim().slice(0, 80);
+  if (!stem) stem = "file";
+  return { data: buf, filename: `${stem}.${ext}`, metadata: { totalSize: buf.length } };
+}
+
 // Send an ordered block list (text/image/link). Returns { ok, msgId, msgIds, images }.
 // `quote`, when present, is attached to the FIRST message sent (native reply).
 export async function sendBlocks(api, blocks, thread, type, account, onError, quote) {
@@ -356,11 +395,19 @@ export async function sendBlocks(api, blocks, thread, type, account, onError, qu
       const u = String(b.url ?? "");
       if (!u) continue;
       try {
-        const f = await downloadToTmp(u, account);
-        const r = await api.sendMessage({ msg: String(b.caption ?? ""), attachments: [f] }, thread, ttype);
+        // Additive: hand zca-js an AttachmentSource with the REAL filename so it
+        // routes to the "others" (document) uploader instead of the image one.
+        // `extra.name` is the source filename captured by normalizePart; fall
+        // back to the URL basename, then to the caption when neither exists.
+        const src = (b.extra && b.extra.name) || b.caption || "";
+        const att = await fetchFileAttachment(u, account, src);
+        const cap = String(b.caption ?? "");
+        const r = await api.sendMessage({ msg: cap, attachments: [att] }, thread, ttype);
         const m = r?.attachment?.[0]?.msgId ?? r?.message?.msgId ?? r?.msgId ?? "";
         if (m) ids.push(String(m));
       } catch (e) {
+        // Legacy fallback (unchanged): never drop the post — send caption + URL
+        // as text if the file upload itself fails.
         if (onError) onError(String(e?.message || e));
         const t = [String(b.caption || ""), u].filter(Boolean).join("\n");
         const r = await api.sendMessage({ msg: t }, thread, ttype); const m = r?.message?.msgId ?? r?.msgId ?? ""; if (m) ids.push(String(m));

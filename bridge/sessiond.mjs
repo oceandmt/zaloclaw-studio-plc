@@ -26,7 +26,7 @@ import net from "node:net";
 import path from "node:path";
 import { Zalo, ThreadType } from "zca-js";
 import { imageSize as probeImageSize } from "image-size";
-import { doSend, doFindUsers, doUserInfo, doFriendRequest, doSetAlias, doGroups, doGroupMembers, loginApi } from "./zalo.mjs";
+import { doSend, doFindUsers, doUserInfo, doFriendRequest, doSetAlias, doGroups, doFriends, doLeaveGroup, doUnfriend, doGroupMembers, loginApi } from "./zalo.mjs";
 import { normalizePart, watchFrom, watchGroup, watchState, msgToEvent, coalesceParts, buildBlocks, sendBlocks } from "./relay.mjs";
 
 const zaloOptions = () => ({ logging: false, imageMetadataGetter: async (fp) => {
@@ -220,6 +220,15 @@ async function handle(req) {
       if (req.dryRun) return { id, ok: true, dryRun: true };
       return { id, ok: true, ...(await doSetAlias(API, req.userId ?? req.user, req.alias)) };
     case "groups": return { id, ok: true, groups: await doGroups(API) };
+    case "friends": return { id, ok: true, friends: await doFriends(API) };
+    case "unfriend": {
+      if (req.dryRun) return { id, ok: true, dryRun: true, userId: req.userId ?? req.user };
+      return { id, ok: true, ...(await doUnfriend(API, req.userId ?? req.user)) };
+    }
+    case "leave-group": {
+      if (req.dryRun) return { id, ok: true, dryRun: true, groupId: req.groupId ?? req.group };
+      return { id, ok: true, ...(await doLeaveGroup(API, req.groupId ?? req.group, req.silent === true)) };
+    }
     case "group-members": {
       // Stream progress as events tagged with this request id, then reply with
       // the final member list. The client filters events by req_id.

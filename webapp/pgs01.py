@@ -36,6 +36,17 @@ _LAST: dict[str, float] = {}
 _SEEN_ACTIVITY: dict[str, float] = {}
 _MONITOR_STARTED = False
 
+# ---- Additive: album coalescing (consecutive captionless images) ----------
+# Zalo delivers a multi-image post as N SEPARATE events (one URL each), each
+# ~100ms apart, so without coalescing S01 emits N separate messages into B.
+# We buffer captionless images from ONE sender within the rule's
+# `group_window_ms` of quiet and emit them as a SINGLE album part (urls[]),
+# which sendBlocks sends as ONE Zalo message carrying multiple attachments.
+# `group_window_ms <= 0` disables coalescing (legacy 1-part-per-image).
+_ALBUM: dict[tuple[str, str, str], dict] = {}   # (rule_id, group, sender) -> pending
+_ALBUM_LOCK = threading.RLock()
+_ALBUM_REAPER_STARTED = False
+
 
 # ------------------------------------------------------------------ helpers
 
@@ -93,6 +104,119 @@ def _dedup_ok(account_id: str, group: str, msg_key: str) -> bool:
     except Exception as e:
         core.log(f"S01 dedup-ledger error :: {e!r}")
         return True
+
+
+# --------------------------------------------------- album coalescing (additive)
+
+def _album_enabled(rule: dict) -> bool:
+    try:
+        return int(rule.get("group_window_ms") or 0) > 0
+    except Exception:
+        return False
+
+
+def _album_candidate(ev: dict, part: dict | None) -> bool:
+    """True when this event is a bare image that may join a burst album.
+
+    Only captionless images qualify: no typed body, no caption, not a reply,
+    and no mentions. Anything richer (text+caption, @All, reply) is forwarded
+    on its own so no meaning is folded away.
+    """
+    if not part or part.get("kind") not in ("image", "gif"):
+        return False
+    if isinstance(ev.get("quote"), dict):
+        return False
+    if (part.get("caption") or "").strip():
+        return False
+    if any(isinstance(m, dict) for m in (ev.get("mentions") or [])):
+        return False
+    return bool(part.get("url"))
+
+
+def _album_key(rule: dict, gid: str, ev: dict) -> tuple:
+    return (rule["id"], str(gid), str(ev.get("uidFrom") or ""))
+
+
+def _album_push(rule: dict, ev: dict, part: dict, gid: str, msg_id: str, text: str) -> None:
+    """Buffer a captionless image; the burst flushes as ONE album message."""
+    delay = max(0.3, int(rule.get("group_window_ms") or 2000) / 1000.0)
+    key = _album_key(rule, gid, ev)
+    url = str(part.get("url") or "")
+    now = time.time()
+    with _ALBUM_LOCK:
+        st = _ALBUM.get(key)
+        if st is None:
+            st = {
+                "deadline": now + delay,
+                "urls": [url],
+                "item": {
+                    "rule_id": rule["id"], "account_id": rule["account_id"],
+                    "src_group_id": gid, "src_name": ev.get("name", ""),
+                    "dst_group_id": rule["dst_group_id"], "src_msg_id": msg_id,
+                    "src_msg_ids": [msg_id] if msg_id else [],
+                    "kind": "plain",
+                },
+            }
+            _ALBUM[key] = st
+        else:
+            if url and url not in st["urls"]:
+                st["urls"].append(url)
+            if msg_id:
+                st["item"]["src_msg_ids"].append(msg_id)
+            st["deadline"] = now + delay
+
+
+def _album_flush(key: tuple) -> None:
+    with _ALBUM_LOCK:
+        st = _ALBUM.pop(key, None)
+    if not st:
+        return
+    urls = st["urls"]
+    if not urls:
+        return
+    item = st["item"]
+    n = len(urls)
+    item["parts"] = [{"kind": "image", "urls": list(urls), "caption": ""}]
+    item["media"] = list(urls)
+    item["text"] = ""
+    item["log_text"] = f"[album {n} ảnh]"
+    _enqueue(item)
+    core.log(f"S01 album-flush :: {item['rule_id']} :: {item['src_group_id']} :: {n} ảnh")
+
+
+def _album_flush_stale() -> None:
+    now = time.time()
+    with _ALBUM_LOCK:
+        due = [k for k, st in _ALBUM.items() if st["deadline"] <= now]
+    for k in due:
+        _album_flush(k)
+
+
+def _album_flush_sender(rule: dict, gid: str, ev: dict) -> None:
+    """Flush a sender's pending album before their next non-image message.
+
+    Preserves ordering: if a burst ends with a captioned image or text, the
+    buffered captionless images must land FIRST rather than being deferred past
+    the newer message.
+    """
+    _album_flush(_album_key(rule, gid, ev))
+
+
+def _album_reaper() -> None:
+    while True:
+        time.sleep(0.5)
+        try:
+            _album_flush_stale()
+        except Exception as e:  # pragma: no cover
+            core.log(f"S01 album-reaper error :: {e!r}")
+
+
+def start_album_reaper() -> None:
+    global _ALBUM_REAPER_STARTED
+    if _ALBUM_REAPER_STARTED:
+        return
+    _ALBUM_REAPER_STARTED = True
+    threading.Thread(target=_album_reaper, daemon=True, name="s01-album").start()
 
 
 # ------------------------------------------------------------- mention logic
@@ -334,6 +458,10 @@ def _dispatch(rule: dict, ev: dict, part: dict | None, text: str, gid: str,
             "dst_group_id": rule["dst_group_id"], "src_msg_id": msg_id,
             "parts": [part] if part else [], "text": text,
             "media": media, "media_kind": media_kind}
+    # Ordering guard: anything that is NOT a coalescing candidate ends the
+    # sender's pending burst, so buffered images land BEFORE the newer message.
+    if _album_enabled(rule) and not (part and _album_candidate(ev, part)):
+        _album_flush_sender(rule, gid, ev)
     if is_reply:
         if not rule.get("fw_replies", 1):
             pgs01_db.add_log(rule["id"], gid, ev.get("name", ""), text, "skip:reply-off",
@@ -369,6 +497,13 @@ def _dispatch(rule: dict, ev: dict, part: dict | None, text: str, gid: str,
         base["text"] = _strip_mentions(text, mentions) or text
         base["kind"] = "plain"
         _enqueue(base)
+        return
+    # Additive album coalescing: a bare (captionless) image joins a burst from
+    # the same sender and flushes as ONE multi-attachment message instead of
+    # N separate ones. Falls through to the plain path when disabled.
+    if _album_enabled(rule) and part and _album_candidate(ev, part):
+        _album_push(rule, ev, part, gid, msg_id, text)
+        pgs01_db.bump_rule(rule["id"], last_seen_msg_id=msg_id or "")
         return
     base["kind"] = "plain"
     _enqueue(base)
@@ -440,11 +575,18 @@ def _sender_loop(account_id: str) -> None:
             _LAST[rule["id"]] = time.time()
             ok = bool(res.get("ok"))
             status = "dry" if (ok and dry) else ("sent" if ok else "error")
-            log_text = item.get("text") or (f"[{len(res.get('msgIds') or [])} phần]"
-                                            if item.get("parts") else "")
-            written = pgs01_db.add_log(rule["id"], item["src_group_id"], item["src_name"], log_text,
-                                       status, res.get("msgId", ""), src_msg_id=item.get("src_msg_id", ""),
-                                       error=("" if ok else str(res.get("error") or "lỗi gửi")))
+            log_text = item.get("log_text") or item.get("text") or (
+                f"[{len(res.get('msgIds') or [])} phần]" if item.get("parts") else "")
+            err = "" if ok else str(res.get("error") or "lỗi gửi")
+            # Additive: an album carries several source msgIds but ONE dst
+            # message. Log a row per source id (same dst_msg_id) so the
+            # source->destination trail stays 1:1 for replies/audit.
+            src_ids = item.get("src_msg_ids") or ([item.get("src_msg_id")] if item.get("src_msg_id") else [""])
+            written = False
+            for sid in src_ids:
+                w = pgs01_db.add_log(rule["id"], item["src_group_id"], item["src_name"], log_text,
+                                     status, res.get("msgId", ""), src_msg_id=sid, error=err)
+                written = written or w
             if not written:
                 core.log(f"S01 dup-db :: {rule['id']} :: {item['src_group_id']} "
                          f"msg={item.get('src_msg_id', '')}")
@@ -603,4 +745,5 @@ def start_health_monitor() -> None:
     if not core.role_allows_s01():
         return
     _MONITOR_STARTED = True
+    start_album_reaper()
     threading.Thread(target=_health_monitor, daemon=True, name="s01-health").start()

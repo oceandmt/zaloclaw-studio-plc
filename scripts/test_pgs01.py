@@ -122,6 +122,84 @@ relay = (HERE / "bridge" / "relay.mjs").read_text()
 check("relay msgToEvent mentions", "mentions," in relay)
 check("relay sendBlocks passes mentions", "mentions: men" in relay)
 
+# 8) album coalescing: a burst of captionless images -> ONE multi-url part ---
+captured = []
+pgs01._enqueue = lambda item: captured.append(item)
+arule = {"id": rid, "account_id": "nick1", "dst_group_id": "B222",
+         "fw_replies": 1, "group_window_ms": 1500}
+_check = "album"
+part_a = {"kind": "image", "url": "http://x/a.jpg", "caption": ""}
+part_b = {"kind": "image", "url": "http://x/b.jpg", "caption": ""}
+part_c = {"kind": "image", "url": "http://x/c.jpg", "caption": ""}
+ev_img = {"uidFrom": "U1", "name": "An", "mentions": []}
+ev_img2 = {"uidFrom": "U1", "name": "An", "mentions": []}
+ev_img3 = {"uidFrom": "U1", "name": "An", "mentions": []}
+
+check("album candidate bare image", pgs01._album_candidate(ev_img, part_a))
+check("album rejects captioned image",
+      not pgs01._album_candidate(ev_img, {"kind": "image", "url": "http://x/a.jpg", "caption": "hi"}))
+check("album rejects reply image",
+      not pgs01._album_candidate({"uidFrom": "U1", "quote": {"msgId": "q1"}, "mentions": []}, part_a))
+check("album rejects text", not pgs01._album_candidate(ev_img, {"kind": "text", "text": "hi"}))
+
+pgs01._dispatch(arule, ev_img, part_a, "", "A111", "M1", [], "image", [])
+check("album buffers (no immediate enqueue)", captured == [], str(captured))
+pgs01._dispatch(arule, ev_img2, part_b, "", "A111", "M2", [], "image", [])
+pgs01._dispatch(arule, ev_img3, part_c, "", "A111", "M3", [], "image", [])
+key = pgs01._album_key(arule, "A111", ev_img)
+check("album accumulated 3 urls", sorted(pgs01._ALBUM[key]["urls"]) ==
+      ["http://x/a.jpg", "http://x/b.jpg", "http://x/c.jpg"], str(pgs01._ALBUM.get(key)))
+check("album tracked all src ids",
+      sorted(pgs01._ALBUM[key]["item"]["src_msg_ids"]) == ["M1", "M2", "M3"])
+
+pgs01._album_flush(key)
+check("album flush emits ONE item", len(captured) == 1, str(len(captured)))
+if captured:
+    it = captured[0]
+    check("album item is single image part", len(it["parts"]) == 1 and it["parts"][0]["kind"] == "image",
+          str(it.get("parts")))
+    check("album item carries 3 urls", len(it["parts"][0].get("urls") or []) == 3, str(it["parts"]))
+    check("album item keeps all src ids", sorted(it["src_msg_ids"]) == ["M1", "M2", "M3"], str(it.get("src_msg_ids")))
+    check("album log label", it.get("log_text") == "[album 3 ảnh]", str(it.get("log_text")))
+
+# different sender must NOT join the same album
+captured.clear()
+ev_other = {"uidFrom": "U2", "name": "Binh", "mentions": []}
+pgs01._dispatch(arule, ev_img, part_a, "", "A111", "M1", [], "image", [])
+pgs01._dispatch(arule, ev_other, part_b, "", "A111", "M4", [], "image", [])
+check("album keeps senders separate", len(pgs01._ALBUM) == 2, str(list(pgs01._ALBUM.keys())))
+for k in list(pgs01._ALBUM.keys()):
+    pgs01._album_flush(k)
+check("album sent as two messages for two senders", len(captured) == 2, str(len(captured)))
+
+# disabled window -> legacy per-image forward (no buffering)
+captured.clear()
+arule_off = dict(arule, group_window_ms=0)
+pgs01._dispatch(arule_off, ev_img, part_a, "", "A111", "M9", [], "image", [])
+check("album disabled forwards immediately", len(captured) == 1 and pgs01._ALBUM == {},
+      f"captured={len(captured)} album={pgs01._ALBUM}")
+
+# text message bypasses album entirely
+captured.clear()
+pgs01._dispatch(arule, {"uidFrom": "U1", "name": "An", "mentions": []}, None, "giá thép", "A111", "MT", [], "", [])
+check("text not buffered into album", len(captured) == 1 and pgs01._ALBUM == {},
+      f"captured={len(captured)} album={pgs01._ALBUM}")
+pgs01._ALBUM.clear()
+
+# ordering guard: a trailing captioned image flushes the buffered burst FIRST
+captured.clear()
+pgs01._dispatch(arule, ev_img, part_a, "", "A111", "T1", [], "image", [])
+pgs01._dispatch(arule, ev_img2, part_b, "", "A111", "T2", [], "image", [])
+cap_part = {"kind": "image", "url": "http://x/z.jpg", "caption": "ghi chú"}
+pgs01._dispatch(arule, ev_img3, cap_part, "ghi chú", "A111", "T3", [], "image", [])
+check("ordering: burst flushed before captioned image", len(captured) == 2, str(len(captured)))
+if len(captured) == 2:
+    check("ordering: buffered album first", captured[0].get("parts", [{}])[0].get("urls") ==
+          ["http://x/a.jpg", "http://x/b.jpg"], str(captured[0].get("parts")))
+    check("ordering: captioned image second", captured[1].get("text") == "ghi chú",
+          str(captured[1].get("text")))
+check("ordering: buffer emptied", pgs01._ALBUM == {}, str(pgs01._ALBUM))
+
 # cleanup temp db ------------------------------------------------------------
 try:
     for f in _TMP.glob("test.db*"):

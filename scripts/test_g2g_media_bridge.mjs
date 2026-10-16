@@ -94,6 +94,55 @@ const errs = [];
 const out2 = await R.sendBlocks(api, [{ type: "image", urls: ["http://127.0.0.1:1/x.jpg"] }], "G_B", 1, "nickT", (e) => errs.push(e));
 ck("dead media url -> no send + error reported", calls.length === 0 && errs.length === 1 && out2.images === 0, JSON.stringify({ calls, errs }));
 
+// --- 4) FILE relay: a document must NOT be sent as an image -----------------
+// Regression: downloadToTmp forces every non-image to `.jpg`, so a real
+// .xlsx/.pdf used to reach zca-js with a .jpg name -> image upload path ->
+// imageMetadataGetter fails -> the file silently degraded to a text caption.
+// fetchFileAttachment must return an AttachmentSource {data, filename, metadata}
+// that keeps the REAL extension (so zca-js routes to the "others"/file uploader)
+// and the original filename.
+const fsrv = http.createServer((req, res) => {
+  res.writeHead(200, { "content-type": "application/octet-stream" });
+  res.end(Buffer.concat([Buffer.from("PK\x03\x04"), Buffer.alloc(300, 7)]));
+});
+await new Promise((r) => fsrv.listen(0, "127.0.0.1", r));
+const FILE_URL = `http://127.0.0.1:${fsrv.address().port}/bao%20cao%20tong%20hop.xlsx`;
+
+const att = await R.fetchFileAttachment(FILE_URL, "nickT", "báo cáo tổng hợp.xlsx");
+ck("fetchFileAttachment -> AttachmentSource with Buffer data", att && Buffer.isBuffer(att.data) && att.data.length > 0);
+ck("fetchFileAttachment keeps REAL extension (.xlsx, not .jpg)", att.filename === "báo cáo tổng hợp.xlsx", String(att.filename));
+ck("fetchFileAttachment sets metadata.totalSize", att.metadata && att.metadata.totalSize === att.data.length, JSON.stringify(att.metadata));
+
+// filename fallback from the URL when none is supplied
+const att2 = await R.fetchFileAttachment(FILE_URL, "nickT", "");
+ck("filename falls back to URL basename", /\.xlsx$/.test(att2.filename) && att2.filename.length > 0, String(att2.filename));
+
+// a file block must reach sendMessage as ONE attachment whose filename is the file
+calls.length = 0;
+const api2 = {
+  sendMessage: async (m, thread, type) => {
+    calls.push({ msg: m.msg, attachments: m.attachments, thread, type });
+    return m.attachments?.length ? { attachment: [{ msgId: "FILE1" }] } : { message: { msgId: "TXT1" } };
+  },
+  sendLink: async () => ({ msgId: "LNK1" }),
+};
+const outF = await R.sendBlocks(api2, [{ type: "file", url: FILE_URL, caption: "15.10. DANH SÁCH HÀNG HÓA.xlsx", extra: { name: "15.10. DANH SÁCH HÀNG HÓA.xlsx" } }], "G_B", 1, "nickT");
+ck("file block -> exactly 1 sendMessage", calls.length === 1, JSON.stringify(calls));
+ck("file block attachment is an AttachmentSource (not a .jpg path)",
+   calls[0]?.attachments?.[0] && typeof calls[0].attachments[0] === "object" && Buffer.isBuffer(calls[0].attachments[0].data));
+ck("file block attachment filename keeps .xlsx",
+   calls[0]?.attachments?.[0]?.filename === "15.10. DANH SÁCH HÀNG HÓA.xlsx", String(calls[0]?.attachments?.[0]?.filename));
+ck("file block caption preserved as msg", calls[0]?.msg === "15.10. DANH SÁCH HÀNG HÓA.xlsx");
+ck("file block returns file msgId", outF.msgId === "FILE1", JSON.stringify(outF));
+
+// a dead file URL must fall back to a text send (never drop the post)
+calls.length = 0;
+const errs2 = [];
+await R.sendBlocks(api2, [{ type: "file", url: "http://127.0.0.1:1/x.xlsx", caption: "cap" }], "G_B", 1, "nickT", (e) => errs2.push(e));
+ck("dead file url -> text fallback + error reported", calls.length === 1 && calls[0].attachments === undefined && errs2.length === 1, JSON.stringify({ calls, errs2 }));
+
+fsrv.close();
+
 srv.close();
 try { fs.unlinkSync(tmpMod); } catch { /* ignore */ }
 
